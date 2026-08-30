@@ -4,33 +4,12 @@ import random
 import re
 import pandas as pd
 import requests
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
 import streamlit as st
 from bs4 import BeautifulSoup
 
 st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
-
-# --- CREDENCIALES DE SPOTIFY (Leyendo de Streamlit Secrets u os.environ) ---
-CLIENT_ID = st.secrets.get(
-    "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
-)
-CLIENT_SECRET = st.secrets.get(
-    "SPOTIPY_CLIENT_SECRET", os.getenv("SPOTIPY_CLIENT_SECRET", "")
-)
-
-# Configurar cliente de Spotify
-spotify_client = None
-try:
-  if CLIENT_ID and CLIENT_SECRET:
-    auth_manager = SpotifyClientCredentials(
-        client_id=CLIENT_ID, client_secret=CLIENT_SECRET
-    )
-    spotify_client = spotipy.Spotify(auth_manager=auth_manager)
-except Exception:
-  spotify_client = None
 
 # --- CONSTANTES ---
 SOLO_BTS = [
@@ -71,7 +50,6 @@ def icon_mov(val):
 
 def es_artista_valido(text_completo, artistas_lista=None):
   try:
-    # Validación precisa usando la lista de artistas oficial de la API de Spotify
     if artistas_lista:
       for art in artistas_lista:
         art_upper = art.upper()
@@ -82,7 +60,6 @@ def es_artista_valido(text_completo, artistas_lista=None):
             return True
       return False
 
-    # Validación por texto plano (respaldo)
     text_upper = str(text_completo).upper()
     for miembro in SOLO_BTS:
       if re.search(rf"\b{re.escape(miembro)}\b", text_upper):
@@ -99,34 +76,79 @@ def es_artista_valido(text_completo, artistas_lista=None):
     return False
 
 
-# --- OBTENCIÓN DE DATOS OFICIALES DESDE SPOTIFY API ---
+# --- OBTENCIÓN DIRECTA DE SPOTIFY API (SIN LIBRERÍAS EXTERNAS) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
-  if not spotify_client:
-    return (
-        pd.DataFrame({
-            "Información": [
-                (
-                    "No se detectaron las credenciales de Spotify en los"
-                    " Secrets de Streamlit."
-                )
-            ]
-        }),
-        datetime.datetime.now().strftime("%Y-%m-%d"),
+  try:
+    client_id = st.secrets.get(
+        "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
+    )
+    client_secret = st.secrets.get(
+        "SPOTIPY_CLIENT_SECRET", os.getenv("SPOTIPY_CLIENT_SECRET", "")
     )
 
-  try:
-    rows = []
-    # Playlists editoriales oficiales de Top 50 Top Charts
+    if not client_id or not client_secret:
+      return (
+          pd.DataFrame({
+              "Información": [
+                  (
+                      "Faltan las credenciales de Spotify en los Secrets de"
+                      " Streamlit."
+                  )
+              ]
+          }),
+          "",
+      )
+
+    # 1. Obtener Token de acceso de Spotify
+    auth_url = "https://accounts.spotify.com/api/token"
+    auth_response = requests.post(
+        auth_url,
+        {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+
+    if auth_response.status_code != 200:
+      return (
+          pd.DataFrame({
+              "Información": [
+                  "Error de autenticación con la API de Spotify (Revisa Client ID y Secret)."
+              ]
+          }),
+          "",
+      )
+
+    access_token = auth_response.json().get("access_token")
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # 2. Consultar Playlist oficial del Top 50
     playlist_id = (
         "37i9dQZEVXbO3qycosjK8v"
         if region.upper() == "HN"
         else "37i9dQZEVXbMDoHDwVN2tF"
     )
+    playlist_url = (
+        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=50"
+    )
 
-    results = spotify_client.playlist_tracks(playlist_id, limit=50)
+    res = requests.get(playlist_url, headers=headers)
+    if res.status_code != 200:
+      return (
+          pd.DataFrame({
+              "Información": [
+                  "No se pudo acceder a la lista oficial de Spotify."
+              ]
+          }),
+          "",
+      )
 
-    for idx, item in enumerate(results["items"], start=1):
+    data = res.json()
+    rows = []
+
+    for idx, item in enumerate(data.get("items", []), start=1):
       track = item.get("track")
       if not track:
         continue
@@ -167,12 +189,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
   except Exception as e:
     return (
         pd.DataFrame({
-            "Información": [
-                (
-                    "Error al consultar la API de Spotify. Revisa tus"
-                    " credenciales."
-                )
-            ]
+            "Información": ["Error interno al consultar la API de Spotify."]
         }),
         "",
     )
