@@ -25,7 +25,6 @@ solo_bts = [
     "V",
 ]
 
-# User-Agents para evitar bloqueos
 USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -35,10 +34,6 @@ USER_AGENTS = [
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         " (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
     ),
-    (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
-        " Gecko) Chrome/122.0.0.0 Safari/537.36"
-    ),
 ]
 
 
@@ -47,11 +42,13 @@ def icon_mov(val):
     val = str(val).strip()
     if val in ["=", "0", ""]:
       return "➡️ ="
-    if "+" in val:
+    if "+" in val or val.startswith("+"):
       return f"🟩 {val}"
-    if "-" in val:
+    if "-" in val or val.startswith("-"):
       return f"🟥 {val}"
-    return f"🔵 {val}"
+    if val.isdigit():
+      return f"🟦 N{val}"
+    return f"➡️ {val}"
   except Exception:
     return "➡️ ="
 
@@ -65,9 +62,6 @@ def es_artista_valido(text_completo):
         "OMAR COURTZ",
         "TITO DOUBLE P",
         "MUSA ELEVA",
-        "MUSAELEV",
-        "VELDÃ",
-        "VELDA",
     ]
     if any(exc in text_upper for exc in exclusiones):
       return False
@@ -106,36 +100,50 @@ def detectar_integrante(text_completo):
 
 
 def fetch_soup(url):
-  headers = {
-      "User-Agent": random.choice(USER_AGENTS),
-      "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-  }
+  headers = {"User-Agent": random.choice(USER_AGENTS)}
   try:
     response = requests.get(url, headers=headers, timeout=6)
     if response.status_code != 200:
-      return None
+      return None, ""
     response.encoding = "utf-8"
-    return BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    # Extraer la fecha del encabezado del reporte
+    fecha = ""
+    subhead = soup.find("div", class_="subhead")
+    if subhead:
+      match = re.search(r"\d{4}/\d{2}/\d{2}", subhead.text)
+      if match:
+        fecha = match.group(0)
+
+    return soup, fecha
   except Exception:
-    return None
+    return None, ""
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_kworb_data(url):
   try:
-    soup = fetch_soup(url)
+    soup, fecha = fetch_soup(url)
     if not soup:
-      return pd.DataFrame({
-          "Aviso": [
-              "Acceso limitado temporalmente por el proveedor. Reintentando..."
-          ]
-      })
+      return (
+          pd.DataFrame({
+              "Aviso": [
+                  "Acceso limitado temporalmente por el proveedor."
+                  " Reintentando..."
+              ]
+          }),
+          "",
+      )
 
     table = soup.find("table")
     if not table:
-      return pd.DataFrame({
-          "Información": ["No hay datos disponibles en este momento."]
-      })
+      return (
+          pd.DataFrame({
+              "Información": ["No hay datos disponibles en este momento."]
+          }),
+          fecha,
+      )
 
     rows = []
     for tr in table.find_all("tr")[1:]:
@@ -148,24 +156,34 @@ def get_kworb_data(url):
       full_text = cols[2].get_text(separator=" ").strip()
 
       if es_artista_valido(full_text):
-        row_data = {"Pos": puesto, "Mov": mov, "Artista & Canción": full_text}
+        row_data = {
+            "Posición": puesto,
+            "Cambio": mov,
+            "Artista & Canción": full_text,
+        }
         if len(cols) >= 7:
           row_data["Streams"] = cols[6].text.strip()
         rows.append(row_data)
 
     df = pd.DataFrame(rows)
     if df.empty:
-      return pd.DataFrame({
-          "Información": [
-              "No se encontraron canciones de BTS en este chart actualmente."
-          ]
-      })
+      return (
+          pd.DataFrame({
+              "Información": [
+                  "No se encontraron canciones de BTS en este chart actualmente."
+              ]
+          }),
+          fecha,
+      )
 
-    return df
+    return df, fecha
   except Exception:
-    return pd.DataFrame({
-        "Aviso": ["No se pudieron procesar los datos en este momento."]
-    })
+    return (
+        pd.DataFrame({
+            "Aviso": ["No se pudieron procesar los datos en este momento."]
+        }),
+        "",
+    )
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -173,17 +191,21 @@ def get_official_kworb_artists(
     url="https://kworb.net/spotify/artists.html",
 ):
   try:
-    soup = fetch_soup(url)
+    soup, fecha = fetch_soup(url)
     if not soup:
-      return pd.DataFrame({
-          "Aviso": [
-              "Acceso limitado temporalmente por el proveedor. Reintentando..."
-          ]
-      })
+      return (
+          pd.DataFrame({
+              "Aviso": [
+                  "Acceso limitado temporalmente por el proveedor."
+                  " Reintentando..."
+              ]
+          }),
+          "",
+      )
 
     table = soup.find("table")
     if not table:
-      return pd.DataFrame({"Información": ["No hay datos de artistas."]})
+      return pd.DataFrame({"Información": ["No hay datos de artistas."]}), fecha
 
     rows = []
     for tr in table.find_all("tr")[1:]:
@@ -193,86 +215,52 @@ def get_official_kworb_artists(
 
       puesto = cols[0].text.strip()
 
-      # Adaptar extracción según la estructura de la página
       if "artists.html" in url:
         nombre_artista = cols[1].text.strip()
+        mov = icon_mov(cols[2].text.strip()) if len(cols) > 2 else "➡️ ="
         if es_artista_valido(nombre_artista):
-          row_data = {"Pos": puesto, "Artista": nombre_artista}
-          if len(cols) >= 3:
-            row_data["Streams Totales / Oyentes"] = cols[2].text.strip()
+          row_data = {
+              "Posición": puesto,
+              "Artista": nombre_artista,
+              "Cambio": mov,
+          }
+          if len(cols) >= 4:
+            row_data["Streams Totales / Oyentes"] = cols[3].text.strip()
           rows.append(row_data)
       else:
         if len(cols) >= 3:
+          mov = icon_mov(cols[1].text.strip())
           full_text = cols[2].get_text(separator=" ").strip()
           if es_artista_valido(full_text):
             integrante = detectar_integrante(full_text)
             row_data = {
-                "Pos": puesto,
+                "Posición": puesto,
                 "Artista": integrante,
-                "Canción Encontrada": full_text,
+                "Cambio": mov,
+                "Canción Mejor Posicionada": full_text,
             }
             rows.append(row_data)
 
     df = pd.DataFrame(rows)
     if df.empty:
-      return pd.DataFrame({
-          "Información": [
-              "No se encontraron integrantes de BTS en el ranking actual."
-          ]
-      })
+      return (
+          pd.DataFrame({
+              "Información": [
+                  "No se encontraron integrantes de BTS en el ranking actual."
+              ]
+          }),
+          fecha,
+      )
 
-    # Eliminar duplicados si proviene de una lista de canciones por país
     df = df.drop_duplicates(subset=["Artista"], keep="first")
-    return df
+    return df, fecha
   except Exception:
-    return pd.DataFrame({
-        "Aviso": ["Error al procesar el ranking de artistas."]
-    })
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def get_simple_chart(url):
-  try:
-    soup = fetch_soup(url)
-    if not soup:
-      return pd.DataFrame({
-          "Aviso": [
-              "Acceso limitado temporalmente por el proveedor. Reintentando..."
-          ]
-      })
-
-    table = soup.find("table")
-    if not table:
-      return pd.DataFrame({
-          "Información": ["No hay datos disponibles en este momento."]
-      })
-
-    rows = []
-    for tr in table.find_all("tr")[1:]:
-      cols = tr.find_all("td")
-      if len(cols) < 3:
-        continue
-
-      puesto = cols[0].text.strip()
-      mov = icon_mov(cols[1].text.strip())
-      full_text = cols[2].get_text(separator=" ").strip()
-
-      if es_artista_valido(full_text):
-        rows.append({"Pos": puesto, "Mov": mov, "Artista & Canción": full_text})
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-      return pd.DataFrame({
-          "Información": [
-              "No se encontraron canciones de BTS en este chart actualmente."
-          ]
-      })
-
-    return df
-  except Exception:
-    return pd.DataFrame({
-        "Aviso": ["No se pudieron procesar los datos en este momento."]
-    })
+    return (
+        pd.DataFrame({
+            "Aviso": ["Error al procesar el ranking de artistas."]
+        }),
+        "",
+    )
 
 
 # --- Estructura de la Aplicación ---
@@ -325,31 +313,31 @@ with tab_spotify:
       st.subheader("Top Canciones - Honduras 🇭🇳")
       c1, c2 = st.columns(2)
       with c1:
-        st.markdown("**Diario**")
+        df_hn_d, fecha_hn_d = get_kworb_data(
+            "https://kworb.net/spotify/country/hn_daily.html"
+        )
+        st.markdown(f"**Diario** `{fecha_hn_d}`")
         st.dataframe(
-            get_kworb_data("https://kworb.net/spotify/country/hn_daily.html"),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
+            df_hn_d, hide_index=True, use_container_width=True, height=500
         )
       with c2:
-        st.markdown("**Semanal**")
+        df_hn_w, fecha_hn_w = get_kworb_data(
+            "https://kworb.net/spotify/country/hn_weekly.html"
+        )
+        st.markdown(f"**Semanal** `{fecha_hn_w}`")
         st.dataframe(
-            get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html"),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
+            df_hn_w, hide_index=True, use_container_width=True, height=500
         )
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
+      df_art_hn, fecha_art_hn = get_official_kworb_artists(
+          "https://kworb.net/spotify/country/hn_daily.html"
+      )
+      if fecha_art_hn:
+        st.caption(f"Actualizado al: {fecha_art_hn}")
       st.dataframe(
-          get_official_kworb_artists(
-              "https://kworb.net/spotify/country/hn_daily.html"
-          ),
-          hide_index=True,
-          use_container_width=True,
-          height=500,
+          df_art_hn, hide_index=True, use_container_width=True, height=500
       )
 
   with subtab_global:
@@ -359,33 +347,31 @@ with tab_spotify:
       st.subheader("Top Canciones - Global 🌍")
       c3, c4 = st.columns(2)
       with c3:
-        st.markdown("**Diario**")
+        df_g_d, fecha_g_d = get_kworb_data(
+            "https://kworb.net/spotify/country/global_daily.html"
+        )
+        st.markdown(f"**Diario** `{fecha_g_d}`")
         st.dataframe(
-            get_kworb_data(
-                "https://kworb.net/spotify/country/global_daily.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
+            df_g_d, hide_index=True, use_container_width=True, height=500
         )
       with c4:
-        st.markdown("**Semanal**")
+        df_g_w, fecha_g_w = get_kworb_data(
+            "https://kworb.net/spotify/country/global_weekly.html"
+        )
+        st.markdown(f"**Semanal** `{fecha_g_w}`")
         st.dataframe(
-            get_kworb_data(
-                "https://kworb.net/spotify/country/global_weekly.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
+            df_g_w, hide_index=True, use_container_width=True, height=500
         )
 
     with tab_g_artists:
       st.subheader("Top Artistas Global (Oficial Kworb/Spotify) 🌍")
+      df_art_g, fecha_art_g = get_official_kworb_artists(
+          "https://kworb.net/spotify/artists.html"
+      )
+      if fecha_art_g:
+        st.caption(f"Actualizado al: {fecha_art_g}")
       st.dataframe(
-          get_official_kworb_artists("https://kworb.net/spotify/artists.html"),
-          hide_index=True,
-          use_container_width=True,
-          height=500,
+          df_art_g, hide_index=True, use_container_width=True, height=500
       )
 
 with tab_apple:
@@ -401,19 +387,23 @@ with tab_deezer:
   cd1, cd2 = st.columns(2)
   with cd1:
     st.subheader("Honduras 🇭🇳")
+    df_d_hn, fecha_d_hn = get_kworb_data(
+        "https://kworb.net/charts/deezer/hn.html"
+    )
+    if fecha_d_hn:
+      st.caption(f"Fecha: {fecha_d_hn}")
     st.dataframe(
-        get_simple_chart("https://kworb.net/charts/deezer/hn.html"),
-        hide_index=True,
-        use_container_width=True,
-        height=600,
+        df_d_hn, hide_index=True, use_container_width=True, height=600
     )
   with cd2:
     st.subheader("Global 🌍")
+    df_d_ww, fecha_d_ww = get_kworb_data(
+        "https://kworb.net/charts/deezer/ww.html"
+    )
+    if fecha_d_ww:
+      st.caption(f"Fecha: {fecha_d_ww}")
     st.dataframe(
-        get_simple_chart("https://kworb.net/charts/deezer/ww.html"),
-        hide_index=True,
-        use_container_width=True,
-        height=600,
+        df_d_ww, hide_index=True, use_container_width=True, height=600
     )
 
 with tab_redes:
