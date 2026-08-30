@@ -11,28 +11,17 @@ st.set_page_config(
 )
 
 # --- CONFIGURACIÓN Y CONSTANTES ---
-MIEMBROS_BTS = {
-    "BTS": "BTS",
-    "Jung Kook": "Jungkook",
-    "Jimin": "Jimin",
-    "V": "V",
-    "RM": "RM",
-    "Jin": "Jin",
-    "SUGA": "Agust D",
-    "j-hope": "j-hope",
-}
-
 SOLO_BTS = [
     "BTS",
     "JUNG KOOK",
     "JUNGKOOK",
     "JIMIN",
     "SUGA",
+    "AGUST D",
     "J-HOPE",
     "JHOPE",
     "RM",
     "JIN",
-    "AGUST D",
     "V",
 ]
 
@@ -48,7 +37,7 @@ USER_AGENTS = [
 ]
 
 
-# --- FUNCIONES AUXILIARES & FILTRADO ---
+# --- FUNCIONES AUXILIARES & FILTRADO ESTRICTO ---
 def icon_mov(val):
   try:
     val = str(val).strip()
@@ -66,25 +55,20 @@ def icon_mov(val):
 def es_artista_valido(text_completo):
   try:
     text_upper = str(text_completo).upper()
-    keywords = [
-        "BTS",
-        "JUNG KOOK",
-        "JUNGKOOK",
-        "JIMIN",
-        "SUGA",
-        "J-HOPE",
-        "JHOPE",
-        "RM",
-        "JIN",
-        "AGUST D",
-        "V",
-    ]
-    return any(kw in text_upper for kw in keywords)
+
+    # Validar si alguno de los miembros o BTS está presente como artista principal o en el texto
+    for miembro in SOLO_BTS:
+      # Verificamos que el nombre aparezca como palabra independiente para evitar falsos positivos
+      pattern = rf"\b{re.escape(miembro)}\b"
+      if re.search(pattern, text_upper):
+        return True
+
+    return False
   except Exception:
     return False
 
 
-# --- SCRAPING DIRECTO DE SPOTIFY CHARTS (VÍA KWORB / ESPEJO) ---
+# --- SCRAPING DE DATOS ---
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_spotify_direct_charts(
     region="hn", period="daily", type_entry="tracks"
@@ -175,7 +159,14 @@ def fetch_spotify_direct_charts(
     if df.empty:
       return (
           pd.DataFrame(
-              {"Información": ["BTS no figura en el Top de este reporte."]}
+              {
+                  "Información": [
+                      (
+                          "BTS o sus miembros no figuran en este reporte"
+                          " actualmente."
+                      )
+                  ]
+              }
           ),
           fecha,
       )
@@ -190,7 +181,6 @@ def fetch_spotify_direct_charts(
     )
 
 
-# --- AUXILIARES PARA DEEZER ---
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_deezer_data(region="hn"):
   headers = {"User-Agent": random.choice(USER_AGENTS)}
@@ -240,7 +230,11 @@ def fetch_deezer_data(region="hn"):
     if df.empty:
       return (
           pd.DataFrame(
-              {"Información": ["BTS no figura en el Top actual de Deezer."]}
+              {
+                  "Información": [
+                      "BTS no figura en el Top actual de Deezer."
+                  ]
+              }
           ),
           fecha,
       )
@@ -254,7 +248,7 @@ def fetch_deezer_data(region="hn"):
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
   st.title("💜 BTS Honduras Charts")
-  st.write("Monitoreo de estadísticas oficiales de BTS y sus integrantes.")
+  st.write("Monitoreo exclusivo de BTS y sus integrantes solistas.")
 with col_head2:
   if st.button("🔄 Actualizar Datos", use_container_width=True):
     st.cache_data.clear()
@@ -276,7 +270,6 @@ with col_head2:
     "🌐 Redes Sociales",
 ])
 
-# --- INICIO ---
 with tab_inicio:
   col1, col2, col3 = st.columns([1, 2, 1])
   with col2:
@@ -284,36 +277,26 @@ with tab_inicio:
         "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
         width=450,
     )
-
   st.header("Sobre Nosotros")
-  st.write(
-      "Plataforma de estadísticas y seguimiento del desempeño de BTS en"
-      " Honduras."
-  )
+  st.write("Plataforma de estadísticas y seguimiento exclusivo de BTS.")
 
-# --- SPOTIFY CHARTS ---
 with tab_spotify:
   st.header("🎧 Spotify Charts")
-
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
-  # --- HONDURAS ---
   with subtab_hn:
     tab_hn_songs, tab_hn_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
-
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
       df_hn_d, fecha_hn_d = fetch_spotify_direct_charts("hn", "daily", "tracks")
       df_hn_w, fecha_hn_w = fetch_spotify_direct_charts(
           "hn", "weekly", "tracks"
       )
-
       fecha_txt = fecha_hn_d or fecha_hn_w
       if fecha_txt:
-        st.info(f"📅 Datos oficiales sincronizados desde Spotify Charts: **{fecha_txt}**")
-
+        st.info(f"📅 Fecha del reporte: **{fecha_txt}**")
       c1, c2 = st.columns(2)
       with c1:
         st.markdown("**Top Canciones Diario**")
@@ -334,11 +317,9 @@ with tab_spotify:
       df_art_hn_w, fecha_art_hn_w = fetch_spotify_direct_charts(
           "hn", "weekly", "artists"
       )
-
       fecha_art_txt = fecha_art_hn_d or fecha_art_hn_w
       if fecha_art_txt:
-        st.info(f"📅 Datos oficiales sincronizados desde Spotify Charts: **{fecha_art_txt}**")
-
+        st.info(f"📅 Fecha del reporte: **{fecha_art_txt}**")
       c_a1, c_a2 = st.columns(2)
       with c_a1:
         st.markdown("**Top Artistas Diario**")
@@ -351,12 +332,10 @@ with tab_spotify:
             df_art_hn_w, hide_index=True, use_container_width=True, height=450
         )
 
-  # --- GLOBAL ---
   with subtab_global:
     tab_g_songs, tab_g_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
-
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
       df_g_d, fecha_g_d = fetch_spotify_direct_charts(
@@ -365,11 +344,9 @@ with tab_spotify:
       df_g_w, fecha_g_w = fetch_spotify_direct_charts(
           "global", "weekly", "tracks"
       )
-
       fecha_g_txt = fecha_g_d or fecha_g_w
       if fecha_g_txt:
-        st.info(f"📅 Datos oficiales sincronizados desde Spotify Charts: **{fecha_g_txt}**")
-
+        st.info(f"📅 Fecha del reporte: **{fecha_g_txt}**")
       c3, c4 = st.columns(2)
       with c3:
         st.markdown("**Top Canciones Diario**")
@@ -390,11 +367,9 @@ with tab_spotify:
       df_art_g_w, fecha_art_g_w = fetch_spotify_direct_charts(
           "global", "weekly", "artists"
       )
-
       fecha_art_g_txt = fecha_art_g_d or fecha_art_g_w
       if fecha_art_g_txt:
-        st.info(f"📅 Datos oficiales sincronizados desde Spotify Charts: **{fecha_art_g_txt}**")
-
+        st.info(f"📅 Fecha del reporte: **{fecha_art_g_txt}**")
       c_g1, c_g2 = st.columns(2)
       with c_g1:
         st.markdown("**Top Artistas Diario**")
@@ -407,22 +382,17 @@ with tab_spotify:
             df_art_g_w, hide_index=True, use_container_width=True, height=450
         )
 
-# --- APPLE MUSIC ---
 with tab_apple:
   st.header("📊 Apple Music")
   st.write("En construcción.")
 
-# --- YOUTUBE MUSIC ---
 with tab_yt:
   st.header("▶️ YouTube Music")
   st.write("En construcción.")
 
-# --- DEEZER ---
 with tab_deezer:
   st.header("🔊 Deezer Charts")
-
   subtab_dz_hn, subtab_dz_g = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
-
   with subtab_dz_hn:
     st.subheader("Top Deezer Honduras 🇭🇳")
     df_dz_hn, fecha_dz_hn = fetch_deezer_data("hn")
@@ -431,7 +401,6 @@ with tab_deezer:
     st.dataframe(
         df_dz_hn, hide_index=True, use_container_width=True, height=450
     )
-
   with subtab_dz_g:
     st.subheader("Top Deezer Global 🌍")
     df_dz_g, fecha_dz_g = fetch_deezer_data("global")
@@ -441,7 +410,6 @@ with tab_deezer:
         df_dz_g, hide_index=True, use_container_width=True, height=450
     )
 
-# --- REDES SOCIALES ---
 with tab_redes:
   st.header("Síguenos")
   st.markdown(
