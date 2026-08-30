@@ -67,7 +67,7 @@ def es_artista_valido(text_completo):
   return False
 
 
-# Obtener datos scraping Kworb usando BeautifulSoup
+# Obtener datos scraping Kworb para Spotify (con o sin streams)
 def get_kworb_data(url):
   headers = {
       "User-Agent": (
@@ -80,7 +80,6 @@ def get_kworb_data(url):
     response.encoding = "utf-8"
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Buscar la tabla principal
     table = soup.find("table")
     if not table:
       return pd.DataFrame()
@@ -95,7 +94,6 @@ def get_kworb_data(url):
       mov = icon_mov(cols[1].text.strip())
       full_text = cols[2].get_text(separator=" ").strip()
 
-      # Filtrar estrictamente solo canciones de BTS o solistas
       if es_artista_valido(full_text):
         row_data = {
             "Pos": puesto,
@@ -103,11 +101,59 @@ def get_kworb_data(url):
             "Artista & Canción": full_text,
         }
 
-        # Si la tabla incluye streams (columnas adicionales), agregamos los datos
         if len(cols) >= 7:
           row_data["Streams"] = cols[6].text.strip()
 
         rows.append(row_data)
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron canciones de BTS o sus solistas en este"
+              " chart actualmente."
+          ]
+      })
+
+    return df
+  except Exception as e:
+    return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
+
+
+# Obtener datos scraping Kworb para tablas simples (Deezer, Apple Music, etc.)
+def get_simple_chart(url):
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+  try:
+    response = requests.get(url, headers=headers, timeout=10)
+    response.encoding = "utf-8"
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame()
+
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        rows.append({
+            "Pos": puesto,
+            "Mov": mov,
+            "Artista & Canción": full_text,
+        })
 
     df = pd.DataFrame(rows)
 
@@ -139,28 +185,31 @@ st.image(
     use_container_width=True,
 )
 
-# Menú lateral
-st.sidebar.title("Navegación")
-opcion = st.sidebar.radio(
-    "Ir a:",
-    [
-        "Inicio",
-        "Spotify",
-        "Apple Music",
-        "Youtube Music",
-        "Deezer",
-        "Redes Sociales",
-    ],
-)
+# Menú principal mediante pestañas (Tabs)
+(
+    tab_inicio,
+    tab_spotify,
+    tab_apple,
+    tab_yt,
+    tab_deezer,
+    tab_redes,
+) = st.tabs([
+    "🏠 Inicio",
+    "🎧 Spotify",
+    "📊 Apple Music",
+    "▶️ YouTube Music",
+    "🔊 Deezer",
+    "🌐 Redes Sociales",
+])
 
-if opcion == "Inicio":
+with tab_inicio:
   st.header("Sobre Nosotros")
   st.write(
       "Aquí encontrarás las novedades, proyectos de streaming y estadísticas"
       " exclusivas de BTS y sus solistas en Honduras."
   )
 
-elif opcion == "Spotify":
+with tab_spotify:
   st.header("🎧 Spotify Charts (Filtro Exclusivo BTS)")
 
   st.subheader("Honduras 🇭🇳")
@@ -191,18 +240,26 @@ elif opcion == "Spotify":
     )
     st.dataframe(df_gw, hide_index=True, use_container_width=True, height=500)
 
-elif opcion == "Apple Music":
+with tab_apple:
   st.header("📊 Apple Music")
   st.write("Sección de Apple Music en construcción.")
 
-elif opcion == "Youtube Music":
+with tab_yt:
   st.header("📊 Youtube Music")
   st.write("Sección de YouTube Music en construcción.")
 
-elif opcion == "Deezer":
-  st.header("📊 Deezer")
-  st.write("Sección de Deezer en construcción.")
+with tab_deezer:
+  st.header("🔊 Deezer Charts")
+  cd1, cd2 = st.columns(2)
+  with cd1:
+    st.subheader("Honduras 🇭🇳")
+    df_dh = get_simple_chart("https://kworb.net/charts/deezer/hn.html")
+    st.dataframe(df_dh, hide_index=True, use_container_width=True, height=600)
+  with cd2:
+    st.subheader("Global 🌍")
+    df_dg = get_simple_chart("https://kworb.net/charts/deezer/ww.html")
+    st.dataframe(df_dg, hide_index=True, use_container_width=True, height=600)
 
-elif opcion == "Redes Sociales":
+with tab_redes:
   st.header("Síguenos")
   st.markdown("[X / Twitter](https://x.com) | [Instagram](https://instagram.com)")
