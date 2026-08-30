@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-# Lista principal de nombres de BTS y sus integrantes
+# Lista principal de nombres de BTS y sus integrantes (Incluye BTS como GRUPO y Solistas)
 solo_bts = [
     "BTS",
     "JUNG KOOK",
@@ -65,7 +65,7 @@ def es_artista_valido(text_completo):
   return False
 
 
-# Validación específica para la lista de Artistas
+# Validación específica para la lista de Artistas (Detecta BTS como GRUPO y Solistas)
 def es_nombre_artista_valido(nombre_artista):
   nombre_upper = nombre_artista.upper().strip()
 
@@ -182,10 +182,12 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Obtención de Top Artistas desde la API de Spotify Charts
+# Función optimizada para extraer Artistas de Spotify Charts (Grupo y Solistas)
 def get_artists_chart_official(region="hn", freq="daily"):
   spotify_region = "global" if region == "global" else "hn"
-  chart_type = "artist-global" if spotify_region == "global" else "artist-hn"
+  chart_type = f"artist-{spotify_region}"
+
+  # Endpoint de consulta oficial
   url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/{chart_type}-{freq}-latest"
 
   headers = {
@@ -194,11 +196,10 @@ def get_artists_chart_official(region="hn", freq="daily"):
           " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
       ),
       "Accept": "application/json",
-      "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
       "Referer": (
           f"https://charts.spotify.com/charts/view/{chart_type}-{freq}/latest"
       ),
-      "Origin": "https://charts.spotify.com",
+      "App-Platform": "Browser",
   }
 
   try:
@@ -207,34 +208,35 @@ def get_artists_chart_official(region="hn", freq="daily"):
     if response.status_code == 200:
       data = response.json()
 
-      # Extraer la estructura de entradas
+      # Captura de entradas soportando múltiples estructuras JSON posibles
       entries = (
-          data.get("chartEntryView", {})
+          data.get("chartEntryView", {}).get("entries", [])
+          or data.get("chartEntryView", {})
           .get("entryData", {})
           .get("chartEntries", [])
+          or data.get("entries", [])
       )
-      if not entries:
-        entries = data.get("chartEntryView", {}).get("entries", [])
 
       rows = []
-      for entry in entries:
-        puesto = str(
-            entry.get("chartEntryData", {}).get(
-                "currentRank", entry.get("rank", "")
-            )
-        )
+      for idx, entry in enumerate(entries, start=1):
+        # Puesto actual
+        chart_data = entry.get("chartEntryData", {})
+        puesto = str(chart_data.get("currentRank", entry.get("rank", idx)))
 
+        # Extracción profunda del nombre del artista (Múltiples formatos)
         artista = (
             entry.get("artistName", "")
+            or entry.get("artistMetadata", {}).get("artistName", "")
             or entry.get("trackMetadata", {})
             .get("artists", [{}])[0]
             .get("name", "")
         )
-        if not artista and "artistMetadata" in entry:
-          artista = entry.get("artistMetadata", {}).get("artistName", "")
 
-        prev_rank = entry.get("chartEntryData", {}).get("previousRank", 0)
-        puesto_num = int(puesto) if puesto.isdigit() else 0
+        # Movimiento
+        prev_rank = chart_data.get(
+            "previousRank", entry.get("previousRank", 0)
+        )
+        puesto_num = int(puesto) if str(puesto).isdigit() else idx
 
         if prev_rank == 0 or prev_rank == puesto_num:
           mov = "➡️ ="
@@ -243,6 +245,7 @@ def get_artists_chart_official(region="hn", freq="daily"):
         else:
           mov = f"🟥 -{puesto_num - prev_rank}"
 
+        # Filtrado: Acepta BTS como grupo y a cualquiera de sus miembros solistas
         if es_nombre_artista_valido(artista):
           rows.append({"Pos": puesto, "Mov": mov, "Artista": artista})
 
