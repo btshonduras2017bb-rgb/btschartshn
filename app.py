@@ -25,6 +25,29 @@ if opcion == "Inicio":
 elif opcion == "Spotify":
     st.header("📊 Spotify")
     st.info("Próximamente actualizaremos los datos de streaming en Spotify y YouTube.")
+    with tab_spot:
+    st.header("🎧 Spotify Charts")
+    st.subheader("Honduras 🇭🇳")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Top Diario Honduras**")
+        df_hd = get_kworb_data("https://kworb.net/spotify/country/hn_daily.html", "spotifydaily")
+        st.dataframe(df_hd, hide_index=True, use_container_width=True, height=600)
+    with c2:
+        st.markdown("**Top Semanal Honduras**")
+        df_hw = get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html", "spotifyweekly")
+        st.dataframe(df_hw, hide_index=True, use_container_width=True, height=600)
+    st.divider()
+    st.subheader("Global 🌍")
+    c3, c4 = st.columns(2)
+    with c3:
+        st.markdown("**Top Diario Global**")
+        df_gd = get_kworb_data("https://kworb.net/spotify/country/global_daily.html", "spotifydaily")
+        st.dataframe(df_gd, hide_index=True, use_container_width=True, height=600)
+    with c4:
+        st.markdown("**Top Semanal Global**")
+        df_gw = get_kworb_data("https://kworb.net/spotify/country/global_weekly.html", "spotifyweekly")
+        st.dataframe(df_gw, hide_index=True, use_container_width=True, height=600)
 
 elif opcion == "Apple Music":
     st.header("📊 Apple Music")
