@@ -5,6 +5,11 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
+# Configuración e Interfaz Streamlit
+st.set_page_config(
+    page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
+)
+
 # Lista principal de nombres de BTS y sus integrantes
 solo_bts = [
     "BTS",
@@ -20,7 +25,7 @@ solo_bts = [
     "V",
 ]
 
-# Lista de User-Agents para evitar bloqueos por IP
+# User-Agents para solicitudes
 USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -33,10 +38,6 @@ USER_AGENTS = [
     (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
         " Gecko) Chrome/122.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101"
-        " Firefox/123.0"
     ),
 ]
 
@@ -89,28 +90,13 @@ def es_artista_valido(text_completo):
     return False
 
 
-def detectar_integrante(text_completo):
-  try:
-    text_upper = str(text_completo).upper()
-    for member in solo_bts:
-      if member == "V":
-        if re.search(r"\bV\b", text_upper):
-          return "V"
-      else:
-        if re.search(rf"\b{re.escape(member)}\b", text_upper):
-          return member
-    return "BTS"
-  except Exception:
-    return "BTS"
-
-
 def fetch_soup(url):
   headers = {
       "User-Agent": random.choice(USER_AGENTS),
       "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
   }
   try:
-    response = requests.get(url, headers=headers, timeout=5)
+    response = requests.get(url, headers=headers, timeout=6)
     if response.status_code != 200:
       return None
     response.encoding = "utf-8"
@@ -119,14 +105,14 @@ def fetch_soup(url):
     return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_kworb_data(url):
   try:
     soup = fetch_soup(url)
     if not soup:
       return pd.DataFrame({
-          "Estado": [
-              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          "Aviso": [
+              "Acceso limitado temporalmente por el proveedor. Reintentando..."
           ]
       })
 
@@ -161,77 +147,67 @@ def get_kworb_data(url):
       })
 
     return df
-  except Exception as e:
+  except Exception:
     return pd.DataFrame({
-        "Estado": [
-            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
-        ]
+        "Aviso": ["No se pudieron procesar los datos en este momento."]
     })
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_artists_from_songs(url):
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_official_kworb_artists(
+    url="https://kworb.net/spotify/artists.html",
+):
   try:
     soup = fetch_soup(url)
     if not soup:
       return pd.DataFrame({
-          "Estado": [
-              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          "Aviso": [
+              "Acceso limitado temporalmente por el proveedor. Reintentando..."
           ]
       })
 
     table = soup.find("table")
     if not table:
-      return pd.DataFrame({
-          "Información": ["No hay datos disponibles en este momento."]
-      })
+      return pd.DataFrame({"Información": ["No hay datos de artistas."]})
 
-    artistas_dict = {}
+    rows = []
     for tr in table.find_all("tr")[1:]:
       cols = tr.find_all("td")
-      if len(cols) < 3:
+      if len(cols) < 2:
         continue
 
-      try:
-        puesto = int(cols[0].text.strip())
-      except ValueError:
-        continue
+      puesto = cols[0].text.strip()
+      nombre_artista = cols[1].text.strip()
 
-      full_text = cols[2].get_text(separator=" ").strip()
+      if es_artista_valido(nombre_artista):
+        row_data = {"Pos": puesto, "Artista": nombre_artista}
+        if len(cols) >= 3:
+          row_data["Streams Totales"] = cols[2].text.strip()
+        rows.append(row_data)
 
-      if es_artista_valido(full_text):
-        integrante = detectar_integrante(full_text)
-        if integrante not in artistas_dict:
-          artistas_dict[integrante] = puesto
-        else:
-          artistas_dict[integrante] = min(artistas_dict[integrante], puesto)
-
-    if not artistas_dict:
+    df = pd.DataFrame(rows)
+    if df.empty:
       return pd.DataFrame({
-          "Información": ["No se encontraron solistas o BTS en este listado."]
+          "Información": [
+              "No se encontraron integrantes de BTS en el ranking actual."
+          ]
       })
 
-    filas = [
-        {"Mejor Posición Canción": f"#{pos}", "Artista": art}
-        for art, pos in sorted(artistas_dict.items(), key=lambda x: x[1])
-    ]
-    return pd.DataFrame(filas)
+    return df
   except Exception:
     return pd.DataFrame({
-        "Estado": [
-            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
-        ]
+        "Aviso": ["Error al procesar el ranking de artistas."]
     })
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_simple_chart(url):
   try:
     soup = fetch_soup(url)
     if not soup:
       return pd.DataFrame({
-          "Estado": [
-              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          "Aviso": [
+              "Acceso limitado temporalmente por el proveedor. Reintentando..."
           ]
       })
 
@@ -265,20 +241,15 @@ def get_simple_chart(url):
     return df
   except Exception:
     return pd.DataFrame({
-        "Estado": [
-            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
-        ]
+        "Aviso": ["No se pudieron procesar los datos en este momento."]
     })
 
 
-# Configuración e Interfaz Streamlit
-st.set_page_config(
-    page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
-)
-
+# --- Estructura de la Aplicación ---
 st.title("💜 BTS Honduras Charts")
 st.write(
-    "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
+    "¡Revisa en tiempo real las posiciones oficiales de BTS y sus integrantes"
+    " en solo!"
 )
 
 (
@@ -342,27 +313,14 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      ca1, ca2 = st.columns(2)
-      with ca1:
-        st.markdown("**Resumen Diario**")
-        st.dataframe(
-            get_artists_from_songs(
-                "https://kworb.net/spotify/country/hn_daily.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
-        )
-      with ca2:
-        st.markdown("**Resumen Semanal**")
-        st.dataframe(
-            get_artists_from_songs(
-                "https://kworb.net/spotify/country/hn_weekly.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
-        )
+      st.dataframe(
+          get_official_kworb_artists(
+              "https://kworb.net/spotify/country/hn_daily.html"
+          ),
+          hide_index=True,
+          use_container_width=True,
+          height=500,
+      )
 
   with subtab_global:
     tab_g_songs, tab_g_artists = st.tabs(["🎵 Top Canciones", "👤 Top Artistas"])
@@ -392,28 +350,13 @@ with tab_spotify:
         )
 
     with tab_g_artists:
-      st.subheader("Top Artistas - Global 🌍")
-      ca3, ca4 = st.columns(2)
-      with ca3:
-        st.markdown("**Resumen Diario Global**")
-        st.dataframe(
-            get_artists_from_songs(
-                "https://kworb.net/spotify/country/global_daily.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
-        )
-      with ca4:
-        st.markdown("**Resumen Semanal Global**")
-        st.dataframe(
-            get_artists_from_songs(
-                "https://kworb.net/spotify/country/global_weekly.html"
-            ),
-            hide_index=True,
-            use_container_width=True,
-            height=500,
-        )
+      st.subheader("Top Artistas Global (Oficial Kworb/Spotify) 🌍")
+      st.dataframe(
+          get_official_kworb_artists("https://kworb.net/spotify/artists.html"),
+          hide_index=True,
+          use_container_width=True,
+          height=500,
+      )
 
 with tab_apple:
   st.header("📊 Apple Music")
@@ -445,4 +388,6 @@ with tab_deezer:
 
 with tab_redes:
   st.header("Síguenos")
-  st.markdown("[X / Twitter](https://x.com) | [Instagram](https://instagram.com)")
+  st.markdown(
+      "[X / Twitter](https://x.com) | [Instagram](https://instagram.com)"
+  )
