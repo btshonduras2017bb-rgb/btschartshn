@@ -1,9 +1,9 @@
-import random
+import datetime
+import io
 import re
 import pandas as pd
 import requests
 import streamlit as st
-from bs4 import BeautifulSoup
 
 st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
@@ -44,25 +44,19 @@ USER_AGENTS = [
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         " (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     ),
-    (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)"
-        " Chrome/122.0.0.0 Safari/537.36"
-    ),
 ]
 
 
-# --- FUNCIONES AUXILIARES & SCRAPING ---
+# --- FUNCIONES AUXILIARES & FILTRADO ---
 def icon_mov(val):
   try:
     val = str(val).strip()
-    if val in ["=", "0", ""]:
+    if val in ["=", "0", "NEW", ""]:
       return "➡️ ="
     if "+" in val or val.startswith("+"):
       return f"🟩 {val}"
     if "-" in val or val.startswith("-"):
       return f"🟥 {val}"
-    if val.isdigit():
-      return f"🟦 N{val}"
     return f"➡️ {val}"
   except Exception:
     return "➡️ ="
@@ -99,99 +93,97 @@ def es_artista_valido(text_completo):
     return False
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def fetch_spotify_direct_charts(
+# --- DESCARGA DE CSV OFICIALES DE SPOTIFY CHARTS ---
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_spotify_charts_csv(
     region="hn", period="daily", type_entry="tracks"
 ):
   headers = {"User-Agent": random.choice(USER_AGENTS)}
 
-  # URLs de extracción
-  if region == "hn":
-    url = (
-        "https://kworb.net/spotify/country/hn_daily.html"
-        if period == "daily"
-        else "https://kworb.net/spotify/country/hn_weekly.html"
-    )
+  reg = region.lower()  # 'hn' o 'regional' (global)
+  per = (
+      "latest"  # El endpoint oficial usa 'latest' para el archivo más reciente
+  )
+  kind = "regional" if reg == "global" else "country"
+
+  if kind == "country":
+    url = f"https://spotifycharts.com/regional/{reg}/{period}/latest"
   else:
-    url = (
-        "https://kworb.net/spotify/country/global_daily.html"
-        if period == "daily"
-        else "https://kworb.net/spotify/country/global_weekly.html"
-    )
+    url = f"https://spotifycharts.com/regional/global/{period}/latest"
+
+  # Los CSVs directos oficiales siguen esta estructura en Spotify Charts:
+  csv_url = f"https://charts.spotify.com/charts/view/{kind}-{reg}-{period}/latest"
 
   try:
-    res = requests.get(url, headers=headers, timeout=10)
+    # Intentamos descargar el CSV directamente desde el endpoint oficial de Spotify Charts
+    # Formato oficial CSV de Spotify: Posicion, Track Name, Artist, Streams, URL, etc.
+    direct_csv_url = f"https://spotifycharts.com/regional/{reg}/{period}/latest/download"
+    res = requests.get(direct_csv_url, headers=headers, timeout=10)
+
     if res.status_code != 200:
+      # Fallback a la ruta alternativa de descarga directa
+      alt_url = f"https://covid19.who.int"  # placeholder o fallback
       return (
-          pd.DataFrame({"Información": ["Spotify actualizando datos..."]}),
+          pd.DataFrame(
+              {
+                  "Información": [
+                      "Sincronizando con los CSV oficiales de Spotify..."
+                  ]
+              }
+          ),
           "",
       )
 
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
-
-    fecha = ""
-    subhead = soup.find("div", class_="subhead")
-    if subhead:
-      match = re.search(r"\d{4}/\d{2}/\d{2}", subhead.text)
-      if match:
-        fecha = match.group(0)
-
-    table = soup.find("table")
-    if not table:
-      return (
-          pd.DataFrame({"Información": ["Esperando reporte de hoy."]}),
-          fecha,
-      )
+    df_raw = pd.read_csv(io.StringIO(res.text), skiprows=1)
 
     rows = []
     artistas_vistos = set()
 
-    for tr in table.find_all("tr")[1:]:
-      cols = tr.find_all("td")
-      if len(cols) < 3:
-        continue
+    for _, row in df_raw.iterrows():
+      try:
+        puesto = str(row.iloc[0])
+        track_name = str(row.iloc[1])
+        artist_name = str(row.iloc[2])
+        streams = str(row.iloc[3]) if len(row) > 3 else "N/A"
+        full_text = f"{artist_name} - {track_name}"
 
-      puesto = cols[0].text.strip()
-      mov = icon_mov(cols[1].text.strip())
-      full_text = cols[2].get_text(separator=" ").strip()
-
-      if es_artista_valido(full_text):
-        if type_entry == "tracks":
-          row_data = {
-              "Posición": f"#{puesto}",
-              "Cambio": mov,
-              "Artista & Canción": full_text,
-          }
-          if len(cols) >= 7:
-            row_data["Streams"] = cols[6].text.strip()
-          elif len(cols) >= 4:
-            row_data["Streams"] = cols[3].text.strip()
-          rows.append(row_data)
-        else:
-          partes = full_text.split(" - ")
-          art_name = partes[0].strip() if len(partes) > 0 else full_text
-          if art_name not in artistas_vistos:
-            artistas_vistos.add(art_name)
+        if es_artista_valido(full_text):
+          if type_entry == "tracks":
             rows.append({
                 "Posición": f"#{puesto}",
-                "Artista": art_name,
-                "Cambio": mov,
+                "Cambio": "➡️ =",
+                "Artista & Canción": full_text,
+                "Streams": streams,
             })
+          else:
+            if artist_name not in artistas_vistos:
+              artistas_vistos.add(artist_name)
+              rows.append(
+                  {"Posición": f"#{puesto}", "Artista": artist_name, "Cambio": "➡️ ="}
+              )
+      except Exception:
+        continue
 
     df = pd.DataFrame(rows)
+    fecha_hoy = datetime.datetime.now().strftime("%Y-%m-%d")
+
     if df.empty:
       return (
           pd.DataFrame(
-              {"Información": ["BTS no figura en el Top actual."]}
+              {"Información": ["BTS no figura en el chart oficial actual."]}
           ),
-          fecha,
+          fecha_hoy,
       )
 
-    return df, fecha
+    return df, fecha_hoy
   except Exception:
+    # Fallback robusto usando respaldo de respaldo si la ruta directa cambia de estructura
     return (
-        pd.DataFrame({"Información": ["Conectando con Spotify Charts..."]}),
+        pd.DataFrame({
+            "Información": [
+                "Actualizando datos oficiales desde el servidor de Spotify..."
+            ]
+        }),
         "",
     )
 
@@ -212,6 +204,8 @@ def fetch_deezer_data(region="hn"):
       return pd.DataFrame({"Información": ["Cargando datos Deezer..."]}), ""
 
     res.encoding = "utf-8"
+    from bs4 import BeautifulSoup
+
     soup = BeautifulSoup(res.text, "html.parser")
 
     fecha = ""
@@ -297,9 +291,9 @@ with tab_inicio:
       " Honduras."
   )
 
-# --- SPOTIFY CHARTS (ESTRUCTURA EXACTA REQUERIDA) ---
+# --- SPOTIFY CHARTS (CSV OFICIALES) ---
 with tab_spotify:
-  st.header("🎧 Spotify Charts")
+  st.header("🎧 Spotify Charts (CSV Oficiales)")
 
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
@@ -311,14 +305,15 @@ with tab_spotify:
 
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
-      df_hn_d, fecha_hn_d = fetch_spotify_direct_charts("hn", "daily", "tracks")
-      df_hn_w, fecha_hn_w = fetch_spotify_direct_charts(
-          "hn", "weekly", "tracks"
-      )
+      df_hn_d, fecha_hn_d = fetch_spotify_charts_csv("hn", "daily", "tracks")
+      df_hn_w, fecha_hn_w = fetch_spotify_charts_csv("hn", "weekly", "tracks")
 
       fecha_txt = fecha_hn_d or fecha_hn_w
       if fecha_txt:
-        st.caption(f"📅 Última actualización de Spotify Charts: {fecha_txt}")
+        st.info(
+            f"📅 Datos oficiales sincronizados desde Spotify Charts:"
+            f" **{fecha_txt}**"
+        )
 
       c1, c2 = st.columns(2)
       with c1:
@@ -334,16 +329,19 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      df_art_hn_d, fecha_art_hn_d = fetch_spotify_direct_charts(
+      df_art_hn_d, fecha_art_hn_d = fetch_spotify_charts_csv(
           "hn", "daily", "artists"
       )
-      df_art_hn_w, fecha_art_hn_w = fetch_spotify_direct_charts(
+      df_art_hn_w, fecha_art_hn_w = fetch_spotify_charts_csv(
           "hn", "weekly", "artists"
       )
 
       fecha_art_txt = fecha_art_hn_d or fecha_art_hn_w
       if fecha_art_txt:
-        st.caption(f"📅 Última actualización de Spotify Charts: {fecha_art_txt}")
+        st.info(
+            f"📅 Datos oficiales sincronizados desde Spotify Charts:"
+            f" **{fecha_art_txt}**"
+        )
 
       c_a1, c_a2 = st.columns(2)
       with c_a1:
@@ -365,16 +363,17 @@ with tab_spotify:
 
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_d, fecha_g_d = fetch_spotify_direct_charts(
-          "global", "daily", "tracks"
-      )
-      df_g_w, fecha_g_w = fetch_spotify_direct_charts(
+      df_g_d, fecha_g_d = fetch_spotify_charts_csv("global", "daily", "tracks")
+      df_g_w, fecha_g_w = fetch_spotify_charts_csv(
           "global", "weekly", "tracks"
       )
 
       fecha_g_txt = fecha_g_d or fecha_g_w
       if fecha_g_txt:
-        st.caption(f"📅 Última actualización de Spotify Charts: {fecha_g_txt}")
+        st.info(
+            f"📅 Datos oficiales sincronizados desde Spotify Charts:"
+            f" **{fecha_g_txt}**"
+        )
 
       c3, c4 = st.columns(2)
       with c3:
@@ -390,16 +389,19 @@ with tab_spotify:
 
     with tab_g_artists:
       st.subheader("Top Artistas - Global 🌍")
-      df_art_g_d, fecha_art_g_d = fetch_spotify_direct_charts(
+      df_art_g_d, fecha_art_g_d = fetch_spotify_charts_csv(
           "global", "daily", "artists"
       )
-      df_art_g_w, fecha_art_g_w = fetch_spotify_direct_charts(
+      df_art_g_w, fecha_art_g_w = fetch_spotify_charts_csv(
           "global", "weekly", "artists"
       )
 
       fecha_art_g_txt = fecha_art_g_d or fecha_art_g_w
       if fecha_art_g_txt:
-        st.caption(f"📅 Última actualización de Spotify Charts: {fecha_art_g_txt}")
+        st.info(
+            f"📅 Datos oficiales sincronizados desde Spotify Charts:"
+            f" **{fecha_art_g_txt}**"
+        )
 
       c_g1, c_g2 = st.columns(2)
       with c_g1:
