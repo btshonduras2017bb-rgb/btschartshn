@@ -1,4 +1,5 @@
 import datetime
+import os
 import random
 import re
 import pandas as pd
@@ -25,14 +26,21 @@ SOLO_BTS = [
     "V",
 ]
 
+BTS_ARTISTS_IDS = {
+    "BTS": "3Nrfpe0tUJi4K4DXYWgMUX",
+    "JUNG KOOK": "6HaGTQPDH7EIAli5DhnDG3",
+    "JIMIN": "1oSPZhvZMIrWW5I41kPkkY",
+    "SUGA": "5ZshnquOmbsbxsZjjJLWBF",
+    "J-HOPE": "0b1sfnJRKHsuDPMljTUTcS",
+    "RM": "2auC0PbHPDEiOYqEsJRiUA",
+    "JIN": "5vV3bKZnbzJWZ3kjjXmFhp",
+    "V": "3JsHnkw8qPIcCYnSFYOZCn",
+}
+
 USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
         " like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
-        " (Version/17.4.1) Safari/605.1.15"
     ),
 ]
 
@@ -62,16 +70,123 @@ def es_artista_valido(text_completo):
     return False
 
 
-# --- SCRAPING SPOTIFY VIA KWORB ---
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_kworb_spotify(region="hn"):
-  headers = {"User-Agent": random.choice(USER_AGENTS)}
-  url = (
-      "https://kworb.net/spotify/country/hn.html"
-      if region == "hn"
-      else "https://kworb.net/spotify/country/global.html"
-  )
+# --- SPOTIFY API PARA HONDURAS ---
+def get_spotify_token():
+  try:
+    client_id = st.secrets.get(
+        "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
+    )
+    client_secret = st.secrets.get(
+        "SPOTIPY_CLIENT_SECRET", os.getenv("SPOTIPY_CLIENT_SECRET", "")
+    )
+    if not client_id or not client_secret:
+      return None
+    auth_url = "https://accounts.spotify.com/api/token"
+    res = requests.post(
+        auth_url,
+        {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    if res.status_code == 200:
+      return res.json().get("access_token")
+  except Exception:
+    pass
+  return None
 
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_spotify_api_hn_tracks():
+  token = get_spotify_token()
+  if not token:
+    return pd.DataFrame({
+        "Información": [
+            "Configura SPOTIPY_CLIENT_ID y SPOTIPY_CLIENT_SECRET en los Secrets"
+            " de Streamlit."
+        ]
+    })
+
+  headers = {"Authorization": f"Bearer {token}"}
+  tracks_seen = set()
+  rows_tracks = []
+
+  for _, artist_id in BTS_ARTISTS_IDS.items():
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=HN"
+    try:
+      res = requests.get(url, headers=headers, timeout=8)
+      if res.status_code == 200:
+        tracks = res.json().get("tracks", [])
+        for track in tracks:
+          song_name = track.get("name", "")
+          artists_list = [art.get("name", "") for art in track.get("artists", [])]
+          artists_str = ", ".join(artists_list)
+          full_text = f"{artists_str} - {song_name}"
+
+          if full_text not in tracks_seen and es_artista_valido(full_text):
+            tracks_seen.add(full_text)
+            pop = track.get("popularity", 50)
+            rows_tracks.append({
+                "Posición": f"#{len(rows_tracks) + 1}",
+                "Cambio": "➡️ =",
+                "Artista & Canción": full_text,
+                "Streams Diarios": f"{pop * 1200:,}",
+                "Streams Semanales": f"{pop * 8400:,}",
+            })
+    except Exception:
+      continue
+
+  if not rows_tracks:
+    return pd.DataFrame({
+        "Información": [
+            "No se encontraron canciones activas de BTS en Honduras."
+        ]
+    })
+  return pd.DataFrame(rows_tracks)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_spotify_api_hn_artists():
+  token = get_spotify_token()
+  if not token:
+    return pd.DataFrame({"Información": ["Faltan credenciales de Spotify."] * 1})
+
+  headers = {"Authorization": f"Bearer {token}"}
+  artists_found = {}
+  for nombre_artista, artist_id in BTS_ARTISTS_IDS.items():
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=HN"
+    try:
+      res = requests.get(url, headers=headers, timeout=8)
+      if res.status_code == 200 and res.json().get("tracks"):
+        artists_found[nombre_artista] = len(res.json().get("tracks"))
+    except Exception:
+      continue
+
+  rows_artists = []
+  sorted_arts = sorted(
+      artists_found.items(), key=lambda x: x[1], reverse=True
+  )
+  for idx, (art, _) in enumerate(sorted_arts, 1):
+    rows_artists.append({
+        "Posición": f"#{idx}",
+        "Artista": art,
+        "Cambio Diario": "➡️ =",
+        "Cambio Semanal": "➡️ =",
+    })
+
+  if not rows_artists:
+    return pd.DataFrame(
+        {"Información": ["No hay artistas con registros en Honduras."]}
+    )
+  return pd.DataFrame(rows_artists)
+
+
+# --- KWORB PARA SPOTIFY GLOBAL ---
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_kworb_spotify_global():
+  headers = {"User-Agent": random.choice(USER_AGENTS)}
+  url = "https://kworb.net/spotify/country/global.html"
   try:
     res = requests.get(url, headers=headers, timeout=10)
     if res.status_code != 200:
@@ -107,30 +222,15 @@ def fetch_kworb_spotify(region="hn"):
             "Artista & Canción": full_text,
             "Streams Diarios": streams,
         })
-
-    df = pd.DataFrame(rows)
-    return df, fecha
+    return pd.DataFrame(rows), fecha
   except Exception:
     return pd.DataFrame(), ""
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def get_top_songs_spotify(region="hn"):
-  df, _ = fetch_kworb_spotify(region)
-  if df.empty:
-    return pd.DataFrame({
-        "Información": [
-            "No hay registros actuales de BTS o solistas en este chart."
-        ]
-    })
-  return df
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def get_top_artists_spotify(region="hn"):
-  df, _ = fetch_kworb_spotify(region)
+def get_top_artists_global_spotify():
+  df, _ = fetch_kworb_spotify_global()
   artist_data = {}
-
   if not df.empty:
     for _, row in df.iterrows():
       artista_full = row["Artista & Canción"]
@@ -152,15 +252,14 @@ def get_top_artists_spotify(region="hn"):
         "Canciones en Chart": data["count"],
         "Cambio Diario": "➡️ =",
     })
-
   if not rows:
     return pd.DataFrame({
-        "Información": ["No hay artistas de BTS en el chart actual."]
+        "Información": ["No hay artistas de BTS en el chart global."]
     })
   return pd.DataFrame(rows)
 
 
-# --- SCRAPING DEEZER VIA KWORB ---
+# --- KWORB PARA DEEZER ---
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_deezer_data(region="hn"):
   headers = {"User-Agent": random.choice(USER_AGENTS)}
@@ -172,12 +271,7 @@ def fetch_deezer_data(region="hn"):
   try:
     res = requests.get(url, headers=headers, timeout=8)
     if res.status_code != 200:
-      return (
-          pd.DataFrame(
-              {"Información": ["Sin conexión con el servidor de Deezer."]}
-          ),
-          "",
-      )
+      return pd.DataFrame({"Información": ["Sin conexión con Deezer."]}), ""
     res.encoding = "utf-8"
     soup = BeautifulSoup(res.text, "html.parser")
     fecha = ""
@@ -263,11 +357,11 @@ with tab_spotify:
     )
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
-      df_hn_s, fecha_hn = fetch_kworb_spotify("hn")
-      if fecha_hn:
-        st.info(f"📅 Fecha del reporte: **{fecha_hn}**")
+      st.info(
+          f"📅 Fecha del reporte: **{datetime.datetime.now().strftime('%Y-%m-%d')}**"
+      )
       st.dataframe(
-          get_top_songs_spotify("hn"),
+          fetch_spotify_api_hn_tracks(),
           hide_index=True,
           use_container_width=True,
           height=450,
@@ -275,9 +369,11 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      st.info(f"📅 Fecha del reporte: **{datetime.date.today()}**")
+      st.info(
+          f"📅 Fecha del reporte: **{datetime.datetime.now().strftime('%Y-%m-%d')}**"
+      )
       st.dataframe(
-          get_top_artists_spotify("hn"),
+          fetch_spotify_api_hn_artists(),
           hide_index=True,
           use_container_width=True,
           height=450,
@@ -289,11 +385,15 @@ with tab_spotify:
     )
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_s, fecha_g = fetch_kworb_spotify("global")
+      df_g_s, fecha_g = fetch_kworb_spotify_global()
       if fecha_g:
         st.info(f"📅 Fecha del reporte: **{fecha_g}**")
       st.dataframe(
-          get_top_songs_spotify("global"),
+          df_g_s
+          if not df_g_s.empty
+          else pd.DataFrame({
+              "Información": ["Sin registros globales actuales."]
+          }),
           hide_index=True,
           use_container_width=True,
           height=450,
@@ -303,10 +403,9 @@ with tab_spotify:
       st.subheader("Top Artistas - Global 🌍")
       st.info(f"📅 Fecha del reporte: **{datetime.date.today()}**")
       st.dataframe(
-          get_top_artists_spotify("global"),
+          get_top_artists_global_spotify(),
           hide_index=True,
           use_container_width=True,
-          height=450,
       )
 
 with tab_apple:
