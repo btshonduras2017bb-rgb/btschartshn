@@ -94,7 +94,7 @@ def get_spotify_client():
   return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_spotify_catalog():
   sp = get_spotify_client()
   if not sp:
@@ -134,7 +134,7 @@ def fetch_spotify_catalog():
     return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_kworb_live_data(region="hn", period="daily", type_entry="tracks"):
   if region == "hn":
     url = (
@@ -150,7 +150,7 @@ def fetch_kworb_live_data(region="hn", period="daily", type_entry="tracks"):
     )
 
   try:
-    url_nocache = f"{url}?nocache={random.randint(100000, 999999)}"
+    url_nocache = f"{url}?v={random.randint(100000, 999999)}"
     headers = {"User-Agent": random.choice(USER_AGENTS)}
     res = requests.get(url_nocache, headers=headers, timeout=10)
 
@@ -173,7 +173,7 @@ def fetch_kworb_live_data(region="hn", period="daily", type_entry="tracks"):
     table = soup.find("table")
     if not table:
       return (
-          pd.DataFrame({"Información": ["No se encontraron datos hoy."]}),
+          pd.DataFrame({"Información": ["No se encontraron datos."]}),
           fecha,
       )
 
@@ -215,7 +215,7 @@ def fetch_kworb_live_data(region="hn", period="daily", type_entry="tracks"):
       return (
           pd.DataFrame({
               "Información": [
-                  "BTS no se encuentra dentro del Top 200 en este reporte."
+                  "BTS no figura en el Top 200 en este reporte de hoy."
               ]
           }),
           fecha,
@@ -233,10 +233,7 @@ def fetch_kworb_live_data(region="hn", period="daily", type_entry="tracks"):
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
   st.title("💜 BTS Honduras Charts")
-  st.write(
-      "Monitoreo de posiciones e índices de popularidad oficiales de BTS y"
-      " sus miembros."
-  )
+  st.write("Estadísticas oficiales de BTS y sus miembros.")
 with col_head2:
   if st.button("🔄 Actualizar Datos", use_container_width=True):
     st.cache_data.clear()
@@ -275,11 +272,9 @@ with tab_inicio:
 with tab_spotify:
   st.header("🎧 Spotify Official Data")
 
-  # Métricas generales desde la API Oficial
   df_api = fetch_spotify_catalog()
   if df_api is not None and not df_api.empty:
-    st.subheader("🔥 Canciones más populares (API Oficial Spotify)")
-    st.caption("Popularidad global calculada directamente por Spotify.")
+    st.subheader("🔥 Popularidad de Canciones (API Oficial Spotify)")
     st.dataframe(df_api, hide_index=True, use_container_width=True, height=300)
     st.divider()
 
@@ -325,7 +320,7 @@ with tab_spotify:
       c3, c4 = st.columns(2)
       with c3:
         df_g_d, fecha_g_d = fetch_kworb_live_data("global", "daily", "tracks")
-        st.markdown(f"**Diario Global** `{fecha_g_g_d or 'Cargando...'}`")
+        st.markdown(f"**Diario Global** `{fecha_g_d or 'Cargando...'}`")
         st.dataframe(
             df_g_d, hide_index=True, use_container_width=True, height=450
         )
@@ -357,10 +352,11 @@ with tab_yt:
 
 with tab_deezer:
   st.header("🔊 Deezer Charts")
-  st.write("Consulte las tablas de Deezer según el reporte disponible.")
+  st.write("Sección Deezer.")
 
 with tab_redes:
   st.header("Síguenos")
   st.markdown(
       "[X / Twitter](https://x.com) | [Instagram](https://instagram.com)"
   )
+    
