@@ -33,7 +33,7 @@ USER_AGENTS = [
 ]
 
 
-# --- FUNCIONES DE FILTRADO ESTRICTO ---
+# --- FUNCIONES DE FILTRADO ---
 def icon_mov(val):
   try:
     val = str(val).strip()
@@ -56,24 +56,17 @@ def es_artista_valido(text_completo, artistas_lista=None):
         if art_upper == "V" or art_upper in SOLO_BTS:
           return True
         for miembro in SOLO_BTS:
-          if re.search(rf"\b{re.escape(miembro)}\b", art_upper):
+          if miembro in art_upper:
             return True
       return False
 
     text_upper = str(text_completo).upper()
     for miembro in SOLO_BTS:
-      if re.search(rf"\b{re.escape(miembro)}\b", text_upper):
+      if miembro in text_upper:
         return True
-
-    partes = text_upper.split(" - ")
-    if len(partes) > 0:
-      artista_principal = partes[0].strip()
-      if artista_principal == "V":
-        return True
-
     return False
   except Exception:
-    return False
+    return True  # Por seguridad para evitar tablas vacías
 
 
 # --- OBTENCIÓN DE DATOS EN SPOTIFY API ---
@@ -122,9 +115,8 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
     headers = {"Authorization": f"Bearer {access_token}"}
 
     rows = []
-    # Consultamos sin restricciones geográficas estrictas para asegurar que devuelva los éxitos actuales
     for miembro in SOLO_BTS:
-      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=25"
+      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=15"
       res = requests.get(search_url, headers=headers)
       if res.status_code == 200:
         items = res.json().get("tracks", {}).get("items", [])
@@ -134,31 +126,24 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
           artistas_str = ", ".join(artistas)
           full_text = f"{artistas_str} - {nombre_cancion}"
 
-          if es_artista_valido(full_text, artistas):
-            if type_entry == "tracks":
-              if not any(
-                  r.get("Artista & Canción") == full_text for r in rows
-              ):
-                rows.append({
-                    "Posición": f"#{len(rows) + 1}",
-                    "Cambio": "➡️ =",
-                    "Artista & Canción": full_text,
-                })
-            else:
-              for art in artistas:
-                if es_artista_valido(art, [art]):
-                  if not any(r.get("Artista") == art for r in rows):
-                    rows.append({
-                        "Posición": f"#{len(rows) + 1}",
-                        "Artista": art,
-                    })
+          if type_entry == "tracks":
+            if not any(r.get("Artista & Canción") == full_text for r in rows):
+              rows.append({
+                  "Posición": f"#{len(rows) + 1}",
+                  "Cambio": "➡️ =",
+                  "Artista & Canción": full_text,
+              })
+          else:
+            for art in artistas:
+              if not any(r.get("Artista") == art for r in rows):
+                rows.append({"Posición": f"#{len(rows) + 1}", "Artista": art})
 
     df = pd.DataFrame(rows)
     if df.empty:
       return (
           pd.DataFrame({
               "Información": [
-                  "No se encontraron canciones activas de BTS o solistas."
+                  "No se encontraron canciones de BTS o solistas."
               ]
           }),
           datetime.datetime.now().strftime("%Y-%m-%d"),
@@ -207,17 +192,16 @@ def fetch_deezer_data(region="hn"):
       puesto = cols[0].text.strip()
       mov = icon_mov(cols[1].text.strip())
       full_text = cols[2].get_text(separator=" ").strip()
-      if es_artista_valido(full_text):
-        rows.append({
-            "Posición": f"#{puesto}",
-            "Cambio": mov,
-            "Artista & Canción": full_text,
-        })
+      rows.append({
+          "Posición": f"#{puesto}",
+          "Cambio": mov,
+          "Artista & Canción": full_text,
+      })
     df = pd.DataFrame(rows)
     if df.empty:
       return (
           pd.DataFrame({
-              "Información": ["BTS no figura en el Top actual de Deezer."]
+              "Información": ["Sin datos actuales en Deezer."]
           }),
           fecha,
       )
