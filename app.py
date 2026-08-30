@@ -46,7 +46,7 @@ def icon_mov(val):
     return "➡️ ="
 
 
-# --- OBTENCIÓN DE DATOS OFICIALES VÍA API DE SPOTIFY (TOP TRACKS) ---
+# --- OBTENCIÓN DE DATOS OFICIALES VÍA API DE SPOTIFY (TOP TRACKS CON RESPALDO) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
   try:
@@ -97,23 +97,32 @@ def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
     for nombre_artista, artist_id in BTS_ARTISTS.items():
       url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market={market}"
       res = requests.get(url, headers=headers)
+      tracks = []
       if res.status_code == 200:
         tracks = res.json().get("tracks", [])
-        for track in tracks:
-          nombre_cancion = track["name"]
-          artistas = [art["name"] for art in track["artists"]]
-          artistas_str = ", ".join(artistas)
-          full_text = f"{artistas_str} - {nombre_cancion}"
 
-          if type_entry == "tracks":
-            if not any(r.get("Artista & Canción") == full_text for r in rows):
-              rows.append({
-                  "Posición": f"#{len(rows) + 1}",
-                  "Cambio": "➡️ =",
-                  "Artista & Canción": full_text,
-              })
-          else:
-            artistas_encontrados.add(nombre_artista)
+      # Respaldo automático si el mercado local (HN) no devuelve datos en modo desarrollo
+      if not tracks and market == "HN":
+        fallback_url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=MX"
+        res_fb = requests.get(fallback_url, headers=headers)
+        if res_fb.status_code == 200:
+          tracks = res_fb.json().get("tracks", [])
+
+      for track in tracks:
+        nombre_cancion = track["name"]
+        artistas = [art["name"] for art in track["artists"]]
+        artistas_str = ", ".join(artistas)
+        full_text = f"{artistas_str} - {nombre_cancion}"
+
+        if type_entry == "tracks":
+          if not any(r.get("Artista & Canción") == full_text for r in rows):
+            rows.append({
+                "Posición": f"#{len(rows) + 1}",
+                "Cambio": "➡️ =",
+                "Artista & Canción": full_text,
+            })
+        else:
+          artistas_encontrados.add(nombre_artista)
 
     if type_entry == "artists":
       for idx, art in enumerate(sorted(artistas_encontrados), 1):
@@ -124,7 +133,7 @@ def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
       return (
           pd.DataFrame({
               "Información": [
-                  "No se encontraron canciones activas en este mercado."
+                  "No se pudieron cargar los datos en este momento."
               ]
           }),
           datetime.datetime.now().strftime("%Y-%m-%d"),
