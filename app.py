@@ -18,8 +18,7 @@ def get_kworb_data(url):
     dfs = pd.read_html(io.StringIO(response.text))
     df = dfs[0]
 
-    # Lista de nombres/términos a buscar (insensible a mayúsculas/minúsculas)
-    # Incluye nombres artísticos, nombres reales y combinaciones habituales
+    # Lista de nombres/términos a buscar
     bts_keywords = [
         r"\bbts\b",
         r"\brm\b",
@@ -34,30 +33,31 @@ def get_kworb_data(url):
         r"\bjung hoseok\b",
         r"\bjimin\b",
         r"\bpark jimin\b",
-        r"\b\bv\b\b",  # Coincide únicamente con la letra 'V' como palabra completa
+        r"\bv\b",  # Corregido: Coincide solo con 'V' como palabra independiente
         r"\bkim taehyung\b",
         r"\bjung kook\b",
         r"\bjungkook\b",
         r"\bjeon jungkook\b",
     ]
 
-    # Crear una sola expresión regular uniendo todas las palabras
     pattern = "|".join(bts_keywords)
 
-    # Identificar las columnas donde suele venir el artista o el título del tema
-    # Kworb suele usar columnas como 'Artist', 'Artist and Title' o 'Track'
-    text_columns = [
-        col
-        for col in df.columns
-        if df[col].dtype == "object" or col.lower() in ["artist", "title", "track"]
-    ]
+    # Buscar en la columna que contiene Artista y Título
+    target_col = None
+    for col in df.columns:
+      if "artist" in str(col).lower() or "title" in str(col).lower():
+        target_col = col
+        break
 
-    if text_columns:
-      # Filtrar filas donde al menos una columna de texto coincida con los integrantes o BTS
-      mask = pd.Series(False, index=df.index)
-      for col in text_columns:
-        mask |= df[col].astype(str).str.contains(pattern, case=False, regex=True)
+    if target_col is None:
+      # Si no detecta la columna por nombre, toma la primera columna con texto
+      text_cols = [c for c in df.columns if df[c].dtype == "object"]
+      if text_cols:
+        target_col = text_cols[0]
 
+    if target_col:
+      # Filtrar las filas que contengan a BTS o sus integrantes
+      mask = df[target_col].astype(str).str.contains(pattern, case=False, regex=True)
       df_filtered = df[mask]
 
       if df_filtered.empty:
