@@ -25,7 +25,7 @@ solo_bts = [
     "V",
 ]
 
-# User-Agents para solicitudes
+# User-Agents para evitar bloqueos
 USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -88,6 +88,21 @@ def es_artista_valido(text_completo):
     return False
   except Exception:
     return False
+
+
+def detectar_integrante(text_completo):
+  try:
+    text_upper = str(text_completo).upper()
+    for member in solo_bts:
+      if member == "V":
+        if re.search(r"\bV\b", text_upper):
+          return "V"
+      else:
+        if re.search(rf"\b{re.escape(member)}\b", text_upper):
+          return member
+    return "BTS"
+  except Exception:
+    return "BTS"
 
 
 def fetch_soup(url):
@@ -177,13 +192,26 @@ def get_official_kworb_artists(
         continue
 
       puesto = cols[0].text.strip()
-      nombre_artista = cols[1].text.strip()
 
-      if es_artista_valido(nombre_artista):
-        row_data = {"Pos": puesto, "Artista": nombre_artista}
+      # Adaptar extracción según la estructura de la página
+      if "artists.html" in url:
+        nombre_artista = cols[1].text.strip()
+        if es_artista_valido(nombre_artista):
+          row_data = {"Pos": puesto, "Artista": nombre_artista}
+          if len(cols) >= 3:
+            row_data["Streams Totales / Oyentes"] = cols[2].text.strip()
+          rows.append(row_data)
+      else:
         if len(cols) >= 3:
-          row_data["Streams Totales"] = cols[2].text.strip()
-        rows.append(row_data)
+          full_text = cols[2].get_text(separator=" ").strip()
+          if es_artista_valido(full_text):
+            integrante = detectar_integrante(full_text)
+            row_data = {
+                "Pos": puesto,
+                "Artista": integrante,
+                "Canción Encontrada": full_text,
+            }
+            rows.append(row_data)
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -193,6 +221,8 @@ def get_official_kworb_artists(
           ]
       })
 
+    # Eliminar duplicados si proviene de una lista de canciones por país
+    df = df.drop_duplicates(subset=["Artista"], keep="first")
     return df
   except Exception:
     return pd.DataFrame({
