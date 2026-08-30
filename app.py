@@ -180,6 +180,11 @@ st.write(
     "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
 )
 
+st.image(
+    "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
+    use_container_width=True,
+)
+
 # Menú principal mediante pestañas (Tabs)
 (
     tab_inicio,
@@ -198,13 +203,6 @@ st.write(
 ])
 
 with tab_inicio:
-  col1, col2, col3 = st.columns([1, 2, 1])
-  with col2:
-    st.image(
-        "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
-        width=450,
-    )
-
   st.header("Sobre Nosotros")
   st.write(
       "Aquí encontrarás las novedades, proyectos de streaming y estadísticas"
@@ -214,38 +212,33 @@ with tab_inicio:
 with tab_spotify:
   st.header("🎧 Spotify Charts (Filtro Exclusivo BTS)")
 
-  # Subcategorías / Pestañas secundarias para Spotify
-  subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
+  st.subheader("Honduras 🇭🇳")
+  c1, c2 = st.columns(2)
+  with c1:
+    st.markdown("**Top Diario Honduras**")
+    df_hd = get_kworb_data("https://kworb.net/spotify/country/hn_daily.html")
+    st.dataframe(df_hd, hide_index=True, use_container_width=True, height=500)
+  with c2:
+    st.markdown("**Top Semanal Honduras**")
+    df_hw = get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html")
+    st.dataframe(df_hw, hide_index=True, use_container_width=True, height=500)
 
-  with subtab_hn:
-    st.subheader("Honduras 🇭🇳")
-    c1, c2 = st.columns(2)
-    with c1:
-      st.markdown("**Top Diario Honduras**")
-      df_hd = get_kworb_data("https://kworb.net/spotify/country/hn_daily.html")
-      st.dataframe(df_hd, hide_index=True, use_container_width=True, height=500)
-    with c2:
-      st.markdown("**Top Semanal Honduras**")
-      df_hw = get_kworb_data(
-          "https://kworb.net/spotify/country/hn_weekly.html"
-      )
-      st.dataframe(df_hw, hide_index=True, use_container_width=True, height=500)
+  st.divider()
 
-  with subtab_global:
-    st.subheader("Global 🌍")
-    c3, c4 = st.columns(2)
-    with c3:
-      st.markdown("**Top Diario Global**")
-      df_gd = get_kworb_data(
-          "https://kworb.net/spotify/country/global_daily.html"
-      )
-      st.dataframe(df_gd, hide_index=True, use_container_width=True, height=500)
-    with c4:
-      st.markdown("**Top Semanal Global**")
-      df_gw = get_kworb_data(
-          "https://kworb.net/spotify/country/global_weekly.html"
-      )
-      st.dataframe(df_gw, hide_index=True, use_container_width=True, height=500)
+  st.subheader("Global 🌍")
+  c3, c4 = st.columns(2)
+  with c3:
+    st.markdown("**Top Diario Global**")
+    df_gd = get_kworb_data(
+        "https://kworb.net/spotify/country/global_daily.html"
+    )
+    st.dataframe(df_gd, hide_index=True, use_container_width=True, height=500)
+  with c4:
+    st.markdown("**Top Semanal Global**")
+    df_gw = get_kworb_data(
+        "https://kworb.net/spotify/country/global_weekly.html"
+    )
+    st.dataframe(df_gw, hide_index=True, use_container_width=True, height=500)
 
 with tab_apple:
   st.header("📊 Apple Music")
