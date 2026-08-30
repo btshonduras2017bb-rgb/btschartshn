@@ -1,5 +1,3 @@
-import datetime
-import os
 import random
 import re
 import pandas as pd
@@ -11,49 +9,52 @@ st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
 
-# --- CONSTANTES Y ARTISTAS ---
+# --- CONFIGURACIÓN Y CONSTANTES ---
+MIEMBROS_BTS = {
+    "BTS": "BTS",
+    "Jung Kook": "Jung Kook",
+    "Jimin": "Jimin",
+    "V": "V",
+    "RM": "RM",
+    "Jin": "Jin",
+    "SUGA": "Agust D",
+    "j-hope": "j-hope",
+}
+
 SOLO_BTS = [
     "BTS",
     "JUNG KOOK",
     "JUNGKOOK",
     "JIMIN",
     "SUGA",
-    "AGUST D",
     "J-HOPE",
     "JHOPE",
     "RM",
     "JIN",
+    "AGUST D",
     "V",
 ]
 
-BTS_ARTISTS_IDS = {
-    "BTS": "3Nrfpe0tUJi4K4DXYWgMUX",
-    "JUNG KOOK": "6HaGTQPDH7EIAli5DhnDG3",
-    "JIMIN": "1oSPZhvZMIrWW5I41kPkkY",
-    "SUGA": "5ZshnquOmbsbxsZjjJLWBF",
-    "J-HOPE": "0b1sfnJRKHsuDPMljTUTcS",
-    "RM": "2auC0PbHPDEiOYqEsJRiUA",
-    "JIN": "5vV3bKZnbzJWZ3kjjXmFhp",
-    "V": "3JsHnkw8qPIcCYnSFYOZCn",
-}
-
-USER_AGENTS = [
-    (
+HEADERS = {
+    "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
         " like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-]
+    )
+}
 
 
+# --- FUNCIONES AUXILIARES & FORMATO DE TABLAS ---
 def icon_mov(val):
   try:
     val = str(val).strip()
-    if val in ["=", "0", "NEW", ""]:
+    if val in ["=", "0", ""]:
       return "➡️ ="
     if "+" in val or val.startswith("+"):
       return f"🟩 {val}"
     if "-" in val or val.startswith("-"):
       return f"🟥 {val}"
+    if val.isdigit():
+      return f"🟦 N{val}"
     return f"➡️ {val}"
   except Exception:
     return "➡️ ="
@@ -62,135 +63,66 @@ def icon_mov(val):
 def es_artista_valido(text_completo):
   try:
     text_upper = str(text_completo).upper()
-    for miembro in SOLO_BTS:
-      if re.search(rf"\b{re.escape(miembro)}\b", text_upper):
+    exclusiones = [
+        "BAD BUNNY",
+        "DEI V",
+        "OMAR COURTZ",
+        "TITO DOUBLE P",
+        "MUSA ELEVA",
+    ]
+    if any(exc in text_upper for exc in exclusiones):
+      return False
+
+    if any(
+        re.search(rf"\b{re.escape(member)}\b", text_upper)
+        for member in SOLO_BTS
+    ):
+      return True
+
+    if re.search(r"\bV\b", text_upper):
+      if any(k in text_upper for k in ["BTS", "FEAT. V", "FT. V"]):
         return True
+      partes = text_upper.split(" - ")
+      if len(partes) > 0 and re.search(r"^\bV\b", partes[0].strip()):
+        return True
+
     return False
   except Exception:
     return False
 
 
-# --- SPOTIFY API PARA HONDURAS ---
-def get_spotify_token():
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_kworb_data(
+    service="spotify", region="hn", period="daily", type_entry="tracks"
+):
+  if service == "spotify":
+    if region == "hn":
+      url = (
+          "https://kworb.net/spotify/country/hn_daily.html"
+          if period == "daily"
+          else "https://kworb.net/spotify/country/hn_weekly.html"
+      )
+    else:
+      url = (
+          "https://kworb.net/spotify/country/global_daily.html"
+          if period == "daily"
+          else "https://kworb.net/spotify/country/global_weekly.html"
+      )
+  else:
+    url = (
+        "https://kworb.net/deezer/country/hn.html"
+        if region == "hn"
+        else "https://kworb.net/deezer/global.html"
+    )
+
   try:
-    client_id = st.secrets.get(
-        "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
-    )
-    client_secret = st.secrets.get(
-        "SPOTIPY_CLIENT_SECRET", os.getenv("SPOTIPY_CLIENT_SECRET", "")
-    )
-    if not client_id or not client_secret:
-      return None
-    auth_url = "https://accounts.spotify.com/api/token"
-    res = requests.post(
-        auth_url,
-        {
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-    )
-    if res.status_code == 200:
-      return res.json().get("access_token")
-  except Exception:
-    pass
-  return None
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_spotify_api_hn_tracks():
-  token = get_spotify_token()
-  if not token:
-    return pd.DataFrame({
-        "Información": [
-            "Configura SPOTIPY_CLIENT_ID y SPOTIPY_CLIENT_SECRET en los Secrets"
-            " de Streamlit."
-        ]
-    })
-
-  headers = {"Authorization": f"Bearer {token}"}
-  tracks_seen = set()
-  rows_tracks = []
-
-  for _, artist_id in BTS_ARTISTS_IDS.items():
-    url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=HN"
-    try:
-      res = requests.get(url, headers=headers, timeout=8)
-      if res.status_code == 200:
-        tracks = res.json().get("tracks", [])
-        for track in tracks:
-          song_name = track.get("name", "")
-          artists_list = [art.get("name", "") for art in track.get("artists", [])]
-          artists_str = ", ".join(artists_list)
-          full_text = f"{artists_str} - {song_name}"
-
-          if full_text not in tracks_seen and es_artista_valido(full_text):
-            tracks_seen.add(full_text)
-            pop = track.get("popularity", 50)
-            rows_tracks.append({
-                "Posición": f"#{len(rows_tracks) + 1}",
-                "Cambio": "➡️ =",
-                "Artista & Canción": full_text,
-                "Streams Diarios": f"{pop * 1200:,}",
-                "Streams Semanales": f"{pop * 8400:,}",
-            })
-    except Exception:
-      continue
-
-  if not rows_tracks:
-    return pd.DataFrame({
-        "Información": [
-            "No se encontraron canciones activas de BTS en Honduras."
-        ]
-    })
-  return pd.DataFrame(rows_tracks)
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_spotify_api_hn_artists():
-  token = get_spotify_token()
-  if not token:
-    return pd.DataFrame({"Información": ["Faltan credenciales de Spotify."] * 1})
-
-  headers = {"Authorization": f"Bearer {token}"}
-  artists_found = {}
-  for nombre_artista, artist_id in BTS_ARTISTS_IDS.items():
-    url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=HN"
-    try:
-      res = requests.get(url, headers=headers, timeout=8)
-      if res.status_code == 200 and res.json().get("tracks"):
-        artists_found[nombre_artista] = len(res.json().get("tracks"))
-    except Exception:
-      continue
-
-  rows_artists = []
-  sorted_arts = sorted(
-      artists_found.items(), key=lambda x: x[1], reverse=True
-  )
-  for idx, (art, _) in enumerate(sorted_arts, 1):
-    rows_artists.append({
-        "Posición": f"#{idx}",
-        "Artista": art,
-        "Cambio Diario": "➡️ =",
-        "Cambio Semanal": "➡️ =",
-    })
-
-  if not rows_artists:
-    return pd.DataFrame(
-        {"Información": ["No hay artistas con registros en Honduras."]}
-    )
-  return pd.DataFrame(rows_artists)
-
-
-# --- KWORB PARA SPOTIFY GLOBAL ---
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_kworb_spotify_global():
-  headers = {"User-Agent": random.choice(USER_AGENTS)}
-  url = "https://kworb.net/spotify/country/global.html"
-  try:
-    res = requests.get(url, headers=headers, timeout=10)
+    res = requests.get(url, headers=HEADERS, timeout=8)
     if res.status_code != 200:
-      return pd.DataFrame(), ""
+      return (
+          pd.DataFrame({"Información": ["Cargando datos del servidor..."]}),
+          "",
+      )
+
     res.encoding = "utf-8"
     soup = BeautifulSoup(res.text, "html.parser")
 
@@ -203,119 +135,66 @@ def fetch_kworb_spotify_global():
 
     table = soup.find("table")
     if not table:
-      return pd.DataFrame(), fecha
+      return (
+          pd.DataFrame({"Información": ["Sin reporte disponible hoy."]}),
+          fecha,
+      )
 
     rows = []
+    artistas_vistos = set()
+
     for tr in table.find_all("tr")[1:]:
       cols = tr.find_all("td")
       if len(cols) < 3:
         continue
-      puesto = cols[0].text.strip()
-      mov = icon_mov(cols[1].text.strip() if len(cols) > 1 else "=")
-      full_text = cols[2].get_text(separator=" ").strip()
-      streams = cols[3].text.strip() if len(cols) > 3 else "N/D"
 
-      if es_artista_valido(full_text):
-        rows.append({
-            "Posición": f"#{puesto}",
-            "Cambio": mov,
-            "Artista & Canción": full_text,
-            "Streams Diarios": streams,
-        })
-    return pd.DataFrame(rows), fecha
-  except Exception:
-    return pd.DataFrame(), ""
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def get_top_artists_global_spotify():
-  df, _ = fetch_kworb_spotify_global()
-  artist_data = {}
-  if not df.empty:
-    for _, row in df.iterrows():
-      artista_full = row["Artista & Canción"]
-      puesto_num = int(row["Posición"].replace("#", ""))
-      for miembro in SOLO_BTS:
-        if miembro in artista_full.upper():
-          if miembro not in artist_data:
-            artist_data[miembro] = {"pos": puesto_num, "count": 0}
-          artist_data[miembro]["count"] += 1
-
-  rows = []
-  sorted_artists = sorted(
-      artist_data.items(), key=lambda x: (x[1]["pos"], -x[1]["count"])
-  )
-  for idx, (art, data) in enumerate(sorted_artists, 1):
-    rows.append({
-        "Posición": f"#{idx}",
-        "Artista": art,
-        "Canciones en Chart": data["count"],
-        "Cambio Diario": "➡️ =",
-    })
-  if not rows:
-    return pd.DataFrame({
-        "Información": ["No hay artistas de BTS en el chart global."]
-    })
-  return pd.DataFrame(rows)
-
-
-# --- KWORB PARA DEEZER ---
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_deezer_data(region="hn"):
-  headers = {"User-Agent": random.choice(USER_AGENTS)}
-  url = (
-      "https://kworb.net/deezer/country/hn.html"
-      if region == "hn"
-      else "https://kworb.net/deezer/global.html"
-  )
-  try:
-    res = requests.get(url, headers=headers, timeout=8)
-    if res.status_code != 200:
-      return pd.DataFrame({"Información": ["Sin conexión con Deezer."]}), ""
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
-    fecha = ""
-    subhead = soup.find("div", class_="subhead")
-    if subhead:
-      match = re.search(r"\d{4}/\d{2}/\d{2}", subhead.text)
-      if match:
-        fecha = match.group(0)
-    table = soup.find("table")
-    if not table:
-      return pd.DataFrame({"Información": ["Sin reporte de Deezer."]}), fecha
-
-    rows = []
-    for tr in table.find_all("tr")[1:]:
-      cols = tr.find_all("td")
-      if len(cols) < 3:
-        continue
       puesto = cols[0].text.strip()
       mov = icon_mov(cols[1].text.strip())
       full_text = cols[2].get_text(separator=" ").strip()
+
       if es_artista_valido(full_text):
-        rows.append({
-            "Posición": f"#{puesto}",
-            "Cambio": mov,
-            "Artista & Canción": full_text,
-        })
+        if type_entry == "tracks":
+          row_data = {
+              "Posición": f"#{puesto}",
+              "Cambio": mov,
+              "Artista & Canción": full_text,
+          }
+          if len(cols) >= 7:
+            row_data["Streams"] = cols[6].text.strip()
+          rows.append(row_data)
+        else:
+          partes = full_text.split(" - ")
+          art_name = partes[0].strip() if len(partes) > 0 else full_text
+          if art_name not in artistas_vistos:
+            artistas_vistos.add(art_name)
+            rows.append({
+                "Posición": f"#{puesto}",
+                "Artista": art_name,
+                "Cambio": mov,
+            })
+
     df = pd.DataFrame(rows)
     if df.empty:
       return (
           pd.DataFrame(
-              {"Información": ["BTS no figura en el Top actual de Deezer."]}
+              {"Información": ["BTS no figura en el Top actual."]}
           ),
           fecha,
       )
+
     return df, fecha
   except Exception:
-    return pd.DataFrame({"Información": ["Error de conexión."]}), ""
+    return (
+        pd.DataFrame({"Información": ["Actualizando fuente..."]}),
+        "",
+    )
 
 
 # --- INTERFAZ PRINCIPAL ---
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
   st.title("💜 BTS Honduras Charts")
-  st.write("Monitoreo oficial y en tiempo real de BTS y sus solistas.")
+  st.write("Monitoreo de estadísticas oficiales de BTS y sus integrantes.")
 with col_head2:
   if st.button("🔄 Actualizar Datos", use_container_width=True):
     st.cache_data.clear()
@@ -337,6 +216,7 @@ with col_head2:
     "🌐 Redes Sociales",
 ])
 
+# --- INICIO ---
 with tab_inicio:
   col1, col2, col3 = st.columns([1, 2, 1])
   with col2:
@@ -344,98 +224,165 @@ with tab_inicio:
         "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
         width=450,
     )
-  st.header("Sobre Nosotros")
-  st.write("Plataforma oficial de estadísticas conectada a fuentes globales.")
 
+  st.header("Sobre Nosotros")
+  st.write(
+      "Plataforma de estadísticas y seguimiento del desempeño de BTS en"
+      " Honduras."
+  )
+
+# --- SPOTIFY CHARTS ---
 with tab_spotify:
   st.header("🎧 Spotify Charts")
+
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_hn:
     tab_hn_songs, tab_hn_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
+
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
-      st.info(
-          f"📅 Fecha del reporte: **{datetime.datetime.now().strftime('%Y-%m-%d')}**"
+      df_hn_d, fecha_hn_d = fetch_kworb_data(
+          "spotify", "hn", "daily", "tracks"
       )
-      st.dataframe(
-          fetch_spotify_api_hn_tracks(),
-          hide_index=True,
-          use_container_width=True,
-          height=450,
+      df_hn_w, fecha_hn_w = fetch_kworb_data(
+          "spotify", "hn", "weekly", "tracks"
       )
+
+      # Muestra la fecha directamente abajo del título si existe
+      fecha_texto = f"📅 Fecha del reporte: {fecha_hn_d or fecha_hn_w}" if (fecha_hn_d or fecha_hn_w) else ""
+      if fecha_texto:
+        st.caption(fecha_texto)
+
+      c1, c2 = st.columns(2)
+      with c1:
+        st.markdown("**Reporte Diario**")
+        st.dataframe(
+            df_hn_d, hide_index=True, use_container_width=True, height=450
+        )
+      with c2:
+        st.markdown("**Reporte Semanal**")
+        st.dataframe(
+            df_hn_w, hide_index=True, use_container_width=True, height=450
+        )
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      st.info(
-          f"📅 Fecha del reporte: **{datetime.datetime.now().strftime('%Y-%m-%d')}**"
+      df_art_hn_d, fecha_art_hn_d = fetch_kworb_data(
+          "spotify", "hn", "daily", "artists"
       )
-      st.dataframe(
-          fetch_spotify_api_hn_artists(),
-          hide_index=True,
-          use_container_width=True,
-          height=450,
+      df_art_hn_w, fecha_art_hn_w = fetch_kworb_data(
+          "spotify", "hn", "weekly", "artists"
       )
+
+      fecha_art_texto = f"📅 Fecha del reporte: {fecha_art_hn_d or fecha_art_hn_w}" if (fecha_art_hn_d or fecha_art_hn_w) else ""
+      if fecha_art_texto:
+        st.caption(fecha_art_texto)
+
+      c_a1, c_a2 = st.columns(2)
+      with c_a1:
+        st.markdown("**Reporte Diario**")
+        st.dataframe(
+            df_art_hn_d, hide_index=True, use_container_width=True, height=450
+        )
+      with c_a2:
+        st.markdown("**Reporte Semanal**")
+        st.dataframe(
+            df_art_hn_w, hide_index=True, use_container_width=True, height=450
+        )
 
   with subtab_global:
     tab_g_songs, tab_g_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
+
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_s, fecha_g = fetch_kworb_spotify_global()
-      if fecha_g:
-        st.info(f"📅 Fecha del reporte: **{fecha_g}**")
-      st.dataframe(
-          df_g_s
-          if not df_g_s.empty
-          else pd.DataFrame({
-              "Información": ["Sin registros globales actuales."]
-          }),
-          hide_index=True,
-          use_container_width=True,
-          height=450,
+      df_g_d, fecha_g_d = fetch_kworb_data(
+          "spotify", "global", "daily", "tracks"
       )
+      df_g_w, fecha_g_w = fetch_kworb_data(
+          "spotify", "global", "weekly", "tracks"
+      )
+
+      fecha_g_texto = f"📅 Fecha del reporte: {fecha_g_d or fecha_g_w}" if (fecha_g_d or fecha_g_w) else ""
+      if fecha_g_texto:
+        st.caption(fecha_g_texto)
+
+      c3, c4 = st.columns(2)
+      with c3:
+        st.markdown("**Reporte Diario**")
+        st.dataframe(
+            df_g_d, hide_index=True, use_container_width=True, height=450
+        )
+      with c4:
+        st.markdown("**Reporte Semanal**")
+        st.dataframe(
+            df_g_w, hide_index=True, use_container_width=True, height=450
+        )
 
     with tab_g_artists:
       st.subheader("Top Artistas - Global 🌍")
-      st.info(f"📅 Fecha del reporte: **{datetime.date.today()}**")
-      st.dataframe(
-          get_top_artists_global_spotify(),
-          hide_index=True,
-          use_container_width=True,
+      df_art_g_d, fecha_art_g_d = fetch_kworb_data(
+          "spotify", "global", "daily", "artists"
+      )
+      df_art_g_w, fecha_art_g_w = fetch_kworb_data(
+          "spotify", "global", "weekly", "artists"
       )
 
+      fecha_art_g_texto = f"📅 Fecha del reporte: {fecha_art_g_d or fecha_art_g_w}" if (fecha_art_g_d or fecha_art_g_w) else ""
+      if fecha_art_g_texto:
+        st.caption(fecha_art_g_texto)
+
+      c_g1, c_g2 = st.columns(2)
+      with c_g1:
+        st.markdown("**Reporte Diario**")
+        st.dataframe(
+            df_art_g_d, hide_index=True, use_container_width=True, height=450
+        )
+      with c_g2:
+        st.markdown("**Reporte Semanal**")
+        st.dataframe(
+            df_art_g_w, hide_index=True, use_container_width=True, height=450
+        )
+
+# --- APPLE MUSIC ---
 with tab_apple:
   st.header("📊 Apple Music")
   st.write("En construcción.")
 
+# --- YOUTUBE MUSIC ---
 with tab_yt:
   st.header("▶️ YouTube Music")
   st.write("En construcción.")
 
+# --- DEEZER ---
 with tab_deezer:
   st.header("🔊 Deezer Charts")
+
   subtab_dz_hn, subtab_dz_g = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
+
   with subtab_dz_hn:
     st.subheader("Top Deezer Honduras 🇭🇳")
-    df_dz_hn, fecha_dz_hn = fetch_deezer_data("hn")
+    df_dz_hn, fecha_dz_hn = fetch_kworb_data("deezer", "hn")
     if fecha_dz_hn:
       st.caption(f"📅 Fecha del reporte: {fecha_dz_hn}")
     st.dataframe(
         df_dz_hn, hide_index=True, use_container_width=True, height=450
     )
+
   with subtab_dz_g:
     st.subheader("Top Deezer Global 🌍")
-    df_dz_g, fecha_dz_g = fetch_deezer_data("global")
+    df_dz_g, fecha_dz_g = fetch_kworb_data("deezer", "global")
     if fecha_dz_g:
       st.caption(f"📅 Fecha del reporte: {fecha_dz_g}")
     st.dataframe(
         df_dz_g, hide_index=True, use_container_width=True, height=450
     )
 
+# --- REDES SOCIALES ---
 with tab_redes:
   st.header("Síguenos")
   st.markdown(
