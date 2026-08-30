@@ -17,6 +17,7 @@ solo_bts = [
     "RM",
     "JIN",
     "AGUST D",
+    "V",
 ]
 
 
@@ -32,11 +33,10 @@ def icon_mov(val):
   return f"🔵 {val}"
 
 
-# Validación estricta para evitar falsos positivos con la letra "V" u otros artistas
+# Validación estricta para canciones
 def es_artista_valido(text_completo):
   text_upper = text_completo.upper()
 
-  # Excluir explícitamente artistas/títulos conocidos por causar falsos positivos
   exclusiones = [
       "BAD BUNNY",
       "DEI V",
@@ -50,13 +50,11 @@ def es_artista_valido(text_completo):
   if any(exc in text_upper for exc in exclusiones):
     return False
 
-  # Comprobar los miembros con nombres de la lista solo_bts
   if any(
       re.search(rf"\b{re.escape(member)}\b", text_upper) for member in solo_bts
   ):
     return True
 
-  # Filtro ultra-estricto para "V"
   if re.search(r"\bV\b", text_upper):
     if "BTS" in text_upper or "FEAT. V" in text_upper or "FT. V" in text_upper:
       return True
@@ -67,7 +65,22 @@ def es_artista_valido(text_completo):
   return False
 
 
-# Obtener datos scraping Kworb para Spotify (con o sin streams)
+# Validación específica para la lista de Artistas
+def es_nombre_artista_valido(nombre_artista):
+  nombre_upper = nombre_artista.upper().strip()
+
+  # Coincidencia exacta o con límites de palabra para evitar que "V" coincida con otros nombres
+  for integrante in solo_bts:
+    if integrante == "V":
+      if re.search(r"^\bV\b$", nombre_upper):
+        return True
+    else:
+      if re.search(rf"\b{re.escape(integrante)}\b", nombre_upper):
+        return True
+  return False
+
+
+# Scraping para tablas de canciones (Kworb)
 def get_kworb_data(url):
   headers = {
       "User-Agent": (
@@ -121,7 +134,7 @@ def get_kworb_data(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Obtener datos scraping Kworb para tablas simples (Deezer, Apple Music, etc.)
+# Scraping para tablas simples (Deezer, Apple Music, etc.)
 def get_simple_chart(url):
   headers = {
       "User-Agent": (
@@ -161,7 +174,62 @@ def get_simple_chart(url):
       return pd.DataFrame({
           "Información": [
               "No se encontraron canciones de BTS o sus solistas en este"
-              " chart actualmente."
+              " chart currently."
+          ]
+      })
+
+    return df
+  except Exception as e:
+    return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
+
+
+# Scraping para Top Artistas de Spotify en Kworb
+def get_artists_chart(url):
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+  try:
+    response = requests.get(url, headers=headers, timeout=10)
+    response.encoding = "utf-8"
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame()
+
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      artista = cols[2].get_text(separator=" ").strip()
+
+      if es_nombre_artista_valido(artista):
+        row_data = {
+            "Pos": puesto,
+            "Mov": mov,
+            "Artista": artista,
+        }
+
+        # Si la tabla incluye streams o días en chart
+        if len(cols) >= 4:
+          row_data["Puntos / Streams"] = cols[3].text.strip()
+
+        rows.append(row_data)
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron integrantes de BTS en el chart de artistas"
+              " actualmente."
           ]
       })
 
@@ -178,11 +246,6 @@ st.set_page_config(
 st.title("💜 BTS Honduras Charts")
 st.write(
     "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
-)
-
-st.image(
-    "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
-    use_container_width=True,
 )
 
 # Menú principal mediante pestañas (Tabs)
@@ -203,6 +266,13 @@ st.image(
 ])
 
 with tab_inicio:
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.image(
+        "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
+        width=450,
+    )
+
   st.header("Sobre Nosotros")
   st.write(
       "Aquí encontrarás las novedades, proyectos de streaming y estadísticas"
@@ -212,33 +282,98 @@ with tab_inicio:
 with tab_spotify:
   st.header("🎧 Spotify Charts (Filtro Exclusivo BTS)")
 
-  st.subheader("Honduras 🇭🇳")
-  c1, c2 = st.columns(2)
-  with c1:
-    st.markdown("**Top Diario Honduras**")
-    df_hd = get_kworb_data("https://kworb.net/spotify/country/hn_daily.html")
-    st.dataframe(df_hd, hide_index=True, use_container_width=True, height=500)
-  with c2:
-    st.markdown("**Top Semanal Honduras**")
-    df_hw = get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html")
-    st.dataframe(df_hw, hide_index=True, use_container_width=True, height=500)
+  # Pestañas principales de región
+  subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
-  st.divider()
+  # --- HONDURAS ---
+  with subtab_hn:
+    tab_hn_songs, tab_hn_artists = st.tabs(
+        ["🎵 Top Canciones", "👤 Top Artistas"]
+    )
 
-  st.subheader("Global 🌍")
-  c3, c4 = st.columns(2)
-  with c3:
-    st.markdown("**Top Diario Global**")
-    df_gd = get_kworb_data(
-        "https://kworb.net/spotify/country/global_daily.html"
-    )
-    st.dataframe(df_gd, hide_index=True, use_container_width=True, height=500)
-  with c4:
-    st.markdown("**Top Semanal Global**")
-    df_gw = get_kworb_data(
-        "https://kworb.net/spotify/country/global_weekly.html"
-    )
-    st.dataframe(df_gw, hide_index=True, use_container_width=True, height=500)
+    with tab_hn_songs:
+      st.subheader("Top Canciones - Honduras 🇭🇳")
+      c1, c2 = st.columns(2)
+      with c1:
+        st.markdown("**Diario**")
+        df_hd = get_kworb_data(
+            "https://kworb.net/spotify/country/hn_daily.html"
+        )
+        st.dataframe(
+            df_hd, hide_index=True, use_container_width=True, height=500
+        )
+      with c2:
+        st.markdown("**Semanal**")
+        df_hw = get_kworb_data(
+            "https://kworb.net/spotify/country/hn_weekly.html"
+        )
+        st.dataframe(
+            df_hw, hide_index=True, use_container_width=True, height=500
+        )
+
+    with tab_hn_artists:
+      st.subheader("Top Artistas - Honduras 🇭🇳")
+      ca1, ca2 = st.columns(2)
+      with ca1:
+        st.markdown("**Diario**")
+        df_adh = get_artists_chart(
+            "https://kworb.net/spotify/artists_hn_daily.html"
+        )
+        st.dataframe(
+            df_adh, hide_index=True, use_container_width=True, height=500
+        )
+      with ca2:
+        st.markdown("**Semanal**")
+        df_awh = get_artists_chart(
+            "https://kworb.net/spotify/artists_hn_weekly.html"
+        )
+        st.dataframe(
+            df_awh, hide_index=True, use_container_width=True, height=500
+        )
+
+  # --- GLOBAL ---
+  with subtab_global:
+    tab_g_songs, tab_g_artists = st.tabs(["🎵 Top Canciones", "👤 Top Artistas"])
+
+    with tab_g_songs:
+      st.subheader("Top Canciones - Global 🌍")
+      c3, c4 = st.columns(2)
+      with c3:
+        st.markdown("**Diario**")
+        df_gd = get_kworb_data(
+            "https://kworb.net/spotify/country/global_daily.html"
+        )
+        st.dataframe(
+            df_gd, hide_index=True, use_container_width=True, height=500
+        )
+      with c4:
+        st.markdown("**Semanal**")
+        df_gw = get_kworb_data(
+            "https://kworb.net/spotify/country/global_weekly.html"
+        )
+        st.dataframe(
+            df_gw, hide_index=True, use_container_width=True, height=500
+        )
+
+    with tab_g_artists:
+      st.subheader("Top Artistas - Global 🌍")
+      ca3, ca4 = st.columns(2)
+      with ca3:
+        st.markdown("**Diario**")
+        df_adg = get_artists_chart(
+            "https://kworb.net/spotify/artists_global_daily.html"
+        )
+        st.dataframe(
+            df_adg, hide_index=True, use_container_width=True, height=500
+        )
+      with ca4:
+        st.markdown("**Semanal**")
+        df_awg = get_artists_chart(
+            "https://kworb.net/spotify/artists_global_weekly.html"
+        )
+        st.dataframe(
+            df_awg, hide_index=True, use_container_width=True, height=500
+        )
 
 with tab_apple:
   st.header("📊 Apple Music")
