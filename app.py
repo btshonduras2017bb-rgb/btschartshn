@@ -76,7 +76,7 @@ def es_artista_valido(text_completo, artistas_lista=None):
     return False
 
 
-# --- OBTENCIÓN DIRECTA DE SPOTIFY API (SIN LIBRERÍAS EXTERNAS) ---
+# --- OBTENCIÓN DE DATOS MEDIANTE BÚSQUEDA DIRECTA EN SPOTIFY API ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
   try:
@@ -100,7 +100,6 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
           "",
       )
 
-    # 1. Obtener Token de acceso de Spotify
     auth_url = "https://accounts.spotify.com/api/token"
     auth_response = requests.post(
         auth_url,
@@ -114,9 +113,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
     if auth_response.status_code != 200:
       return (
           pd.DataFrame({
-              "Información": [
-                  "Error de autenticación con la API de Spotify (Revisa Client ID y Secret)."
-              ]
+              "Información": ["Error de autenticación con la API de Spotify."]
           }),
           "",
       )
@@ -124,52 +121,37 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
     access_token = auth_response.json().get("access_token")
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    # 2. Consultar Playlist oficial del Top 50
-    playlist_id = (
-        "37i9dQZEVXbO3qycosjK8v"
-        if region.upper() == "HN"
-        else "37i9dQZEVXbMDoHDwVN2tF"
-    )
-    playlist_url = (
-        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=50"
-    )
-
-    res = requests.get(playlist_url, headers=headers)
-    if res.status_code != 200:
-      return (
-          pd.DataFrame({
-              "Información": [
-                  "No se pudo acceder a la lista oficial de Spotify."
-              ]
-          }),
-          "",
-      )
-
-    data = res.json()
     rows = []
+    for miembro in SOLO_BTS:
+      # Si se requiere por región, podemos añadir el mercado en la consulta o filtrar
+      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=15&market={region.upper()}"
+      res = requests.get(search_url, headers=headers)
+      if res.status_code == 200:
+        items = res.json().get("tracks", {}).get("items", [])
+        for item in items:
+          nombre_cancion = item["name"]
+          artistas = [art["name"] for art in item["artists"]]
+          artistas_str = ", ".join(artistas)
+          full_text = f"{artistas_str} - {nombre_cancion}"
 
-    for idx, item in enumerate(data.get("items", []), start=1):
-      track = item.get("track")
-      if not track:
-        continue
-
-      nombre_cancion = track["name"]
-      artistas = [art["name"] for art in track["artists"]]
-      artistas_str = ", ".join(artistas)
-      full_text = f"{artistas_str} - {nombre_cancion}"
-
-      if es_artista_valido(full_text, artistas):
-        if type_entry == "tracks":
-          rows.append({
-              "Posición": f"#{idx}",
-              "Cambio": "➡️ =",
-              "Artista & Canción": full_text,
-          })
-        else:
-          for art in artistas:
-            if es_artista_valido(art, [art]):
-              if not any(r.get("Artista") == art for r in rows):
-                rows.append({"Posición": f"#{idx}", "Artista": art})
+          if es_artista_valido(full_text, artistas):
+            if type_entry == "tracks":
+              if not any(
+                  r.get("Artista & Canción") == full_text for r in rows
+              ):
+                rows.append({
+                    "Posición": f"#{len(rows) + 1}",
+                    "Cambio": "➡️ =",
+                    "Artista & Canción": full_text,
+                })
+            else:
+              for art in artistas:
+                if es_artista_valido(art, [art]):
+                  if not any(r.get("Artista") == art for r in rows):
+                    rows.append({
+                        "Posición": f"#{len(rows) + 1}",
+                        "Artista": art,
+                    })
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -177,8 +159,8 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
           pd.DataFrame({
               "Información": [
                   (
-                      "BTS o sus miembros no se encuentran en el Top 50"
-                      f" actual de {region}."
+                      "No se encontraron canciones activas de BTS o solistas"
+                      f" en {region}."
                   )
               ]
           }),
@@ -186,7 +168,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
       )
 
     return df, datetime.datetime.now().strftime("%Y-%m-%d")
-  except Exception as e:
+  except Exception:
     return (
         pd.DataFrame({
             "Información": ["Error interno al consultar la API de Spotify."]
@@ -287,6 +269,7 @@ with tab_spotify:
   st.header("🎧 Spotify Charts (API Oficial)")
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
+  # --- PESTAÑA HONDURAS ---
   with subtab_hn:
     tab_hn_songs, tab_hn_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
@@ -309,13 +292,14 @@ with tab_spotify:
           df_art_hn_d, hide_index=True, use_container_width=True, height=450
       )
 
+  # --- PESTAÑA GLOBAL ---
   with subtab_global:
     tab_g_songs, tab_g_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_d, fecha_g_d = fetch_spotify_api_charts("Global", "tracks")
+      df_g_d, fecha_g_d = fetch_spotify_api_charts("US", "tracks")
       if fecha_g_d:
         st.info(f"📅 Fecha del reporte: **{fecha_g_d}**")
       st.dataframe(
@@ -324,7 +308,7 @@ with tab_spotify:
 
     with tab_g_artists:
       st.subheader("Top Artistas - Global 🌍")
-      df_art_g_d, fecha_art_g_d = fetch_spotify_api_charts("Global", "artists")
+      df_art_g_d, fecha_art_g_d = fetch_spotify_api_charts("US", "artists")
       if fecha_art_g_d:
         st.info(f"📅 Fecha del reporte: **{fecha_art_g_d}**")
       st.dataframe(
