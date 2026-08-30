@@ -3,91 +3,137 @@ import re
 import pandas as pd
 import requests
 import streamlit as st
+from bs4 import BeautifulSoup
+
+# Lista principal de nombres de BTS y sus integrantes
+solo_bts = [
+    "BTS",
+    "JUNG KOOK",
+    "JUNGKOOK",
+    "JIMIN",
+    "SUGA",
+    "J-HOPE",
+    "JHOPE",
+    "RM",
+    "JIN",
+    "AGUST D",
+]
 
 
-# Función para obtener y filtrar datos de Kworb
+# Iconos de movimiento
+def icon_mov(val):
+  val = str(val).strip()
+  if val == "=" or val == "0" or val == "":
+    return "➡️ ="
+  if "+" in val:
+    return f"🟩 {val}"
+  if "-" in val:
+    return f"🟥 {val}"
+  return f"🔵 {val}"
+
+
+# Validación estricta para evitar falsos positivos con la letra "V" u otros artistas
+def es_artista_valido(text_completo):
+  text_upper = text_completo.upper()
+
+  # Excluir explícitamente artistas/títulos conocidos por causar falsos positivos
+  exclusiones = [
+      "BAD BUNNY",
+      "DEI V",
+      "OMAR COURTZ",
+      "TITO DOUBLE P",
+      "MUSA ELEVA",
+      "MUSAELEV",
+      "VELDÃ",
+      "VELDA",
+  ]
+  if any(exc in text_upper for exc in exclusiones):
+    return False
+
+  # Comprobar los miembros con nombres de la lista solo_bts
+  if any(
+      re.search(rf"\b{re.escape(member)}\b", text_upper) for member in solo_bts
+  ):
+    return True
+
+  # Filtro ultra-estricto para "V"
+  if re.search(r"\bV\b", text_upper):
+    if "BTS" in text_upper or "FEAT. V" in text_upper or "FT. V" in text_upper:
+      return True
+    partes = text_upper.split(" - ")
+    if len(partes) > 0 and re.search(r"^\bV\b", partes[0].strip()):
+      return True
+
+  return False
+
+
+# Obtener datos scraping Kworb usando BeautifulSoup
 def get_kworb_data(url):
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
   try:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
     response = requests.get(url, headers=headers, timeout=10)
-    dfs = pd.read_html(io.StringIO(response.text))
-    df = dfs[0]
+    response.encoding = "utf-8"
+    soup = BeautifulSoup(response.text, "html.parser")
 
-    # Lista de nombres/términos a buscar
-    bts_keywords = [
-        r"\bbts\b",
-        r"\brm\b",
-        r"\bkim namjoon\b",
-        r"\bjin\b",
-        r"\bkim seokjin\b",
-        r"\bsuga\b",
-        r"\bagust d\b",
-        r"\bmin yoongi\b",
-        r"\bj-hope\b",
-        r"\bjhope\b",
-        r"\bjung hoseok\b",
-        r"\bjimin\b",
-        r"\bpark jimin\b",
-        r"\bv\b",  # Corregido: Coincide solo con 'V' como palabra independiente
-        r"\bkim taehyung\b",
-        r"\bjung kook\b",
-        r"\bjungkook\b",
-        r"\bjeon jungkook\b",
-    ]
+    # Buscar la tabla principal
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame()
 
-    pattern = "|".join(bts_keywords)
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
 
-    # Buscar en la columna que contiene Artista y Título
-    target_col = None
-    for col in df.columns:
-      if "artist" in str(col).lower() or "title" in str(col).lower():
-        target_col = col
-        break
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
 
-    if target_col is None:
-      # Si no detecta la columna por nombre, toma la primera columna con texto
-      text_cols = [c for c in df.columns if df[c].dtype == "object"]
-      if text_cols:
-        target_col = text_cols[0]
+      # Filtrar estrictamente solo canciones de BTS o solistas
+      if es_artista_valido(full_text):
+        row_data = {
+            "Pos": puesto,
+            "Mov": mov,
+            "Artista & Canción": full_text,
+        }
 
-    if target_col:
-      # Filtrar las filas que contengan a BTS o sus integrantes
-      mask = df[target_col].astype(str).str.contains(pattern, case=False, regex=True)
-      df_filtered = df[mask]
+        # Si la tabla incluye streams (columnas adicionales), agregamos los datos
+        if len(cols) >= 7:
+          row_data["Streams"] = cols[6].text.strip()
 
-      if df_filtered.empty:
-        return pd.DataFrame({
-            "Información": [
-                "No se encontraron canciones de BTS o sus solistas en este"
-                " chart actualmente."
-            ]
-        })
+        rows.append(row_data)
 
-      return df_filtered
-    else:
-      return df
+    df = pd.DataFrame(rows)
 
+    if df.empty:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron canciones de BTS o sus solistas en este"
+              " chart actualmente."
+          ]
+      })
+
+    return df
   except Exception as e:
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Configuración de la página
+# Configuración de la página en Streamlit
 st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
 
-# Encabezado principal
 st.title("💜 BTS Honduras Charts")
 st.write(
     "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
 )
 
-# Banner principal
 st.image(
     "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
     use_container_width=True,
@@ -115,7 +161,7 @@ if opcion == "Inicio":
   )
 
 elif opcion == "Spotify":
-  st.header("🎧 Spotify Charts (Filtro BTS & Solistas)")
+  st.header("🎧 Spotify Charts (Filtro Exclusivo BTS)")
 
   st.subheader("Honduras 🇭🇳")
   c1, c2 = st.columns(2)
