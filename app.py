@@ -14,7 +14,7 @@ st.set_page_config(
 # --- CONFIGURACIÓN Y CONSTANTES ---
 MIEMBROS_BTS = {
     "BTS": "BTS",
-    "Jung Kook": "Jungkook",
+    "Jung Kook": "Jung Kook",
     "Jimin": "Jimin",
     "V": "V",
     "RM": "RM",
@@ -45,10 +45,9 @@ HEADERS = {
 }
 
 
-# --- FUNCIONES SPOTIFY (API OFICIAL CON BACKUP DE SECRETS) ---
+# --- CONEXIÓN SPOTIFY ---
 def get_spotify_client():
   try:
-    # Intenta leer desde los secrets de Streamlit o usa las claves directas como respaldo
     client_id = st.secrets.get(
         "SPOTIPY_CLIENT_ID", "9823fd0dcfb740ad94eb5c7ceb1d4809"
     )
@@ -74,35 +73,52 @@ def get_artist_top_tracks(artist_name):
     return None, None
 
   try:
-    results = sp.search(q=artist_name, type="artist", limit=1)
-    artists = results.get("artists", {}).get("items", [])
-    if not artists:
-      return None, None
+    # Usar el buscador para evitar la restricción HTTP 403
+    query = f"artist:{artist_name}"
+    results = sp.search(q=query, type="track", limit=50)
+    items = results.get("tracks", {}).get("items", [])
 
-    artist_id = artists[0]["id"]
-    artist_full_name = artists[0]["name"]
+    if not items:
+      return None, artist_name
 
-    top_tracks = sp.artist_top_tracks(artist_id)
     tracks_data = []
+    vistos = set()
 
-    for idx, track in enumerate(top_tracks.get("tracks", []), 1):
+    for item in items:
+      track_name = item.get("name", "")
+      if track_name in vistos:
+        continue
+      vistos.add(track_name)
+
+      artists = [a.get("name", "") for a in item.get("artists", [])]
+      popularity = item.get("popularity", 0)
+
       tracks_data.append({
-          "Ranking": f"#{idx}",
-          "Canción": track["name"],
-          "Popularidad Spotify": f"🔥 {track['popularity']}/100",
-          "Álbum": track["album"]["name"],
-          "Fecha de Lanzamiento": track["album"]["release_date"],
-          "Link": track["external_urls"]["spotify"],
+          "Canción": track_name,
+          "Artista(s)": ", ".join(artists),
+          "Popularidad Spotify": f"🔥 {popularity}/100",
+          "Álbum": item.get("album", {}).get("name", "N/A"),
+          "Fecha de Lanzamiento": item.get("album", {}).get(
+              "release_date", "N/A"
+          ),
+          "Link": item.get("external_urls", {}).get("spotify", ""),
+          "_pop_num": popularity,
       })
 
     df = pd.DataFrame(tracks_data)
-    return df, artist_full_name
+    if not df.empty:
+      df = df.sort_values(by="_pop_num", ascending=False).drop(
+          columns=["_pop_num"]
+      )
+      df.insert(0, "Ranking", [f"#{i}" for i in range(1, len(df) + 1)])
+
+    return df, artist_name
   except Exception as e:
-    st.error(f"Error al obtener canciones: {e}")
-    return None, None
+    st.error(f"Error al obtener datos: {e}")
+    return None, artist_name
 
 
-# --- FUNCIONES AUXILIARES & DEEZER (KWORB SCRAPING) ---
+# --- FUNCIONES AUXILIARES & DEEZER ---
 def icon_mov(val):
   try:
     val = str(val).strip()
@@ -262,7 +278,7 @@ with tab_inicio:
       " Honduras."
   )
 
-# --- SPOTIFY (API OFICIAL EN TIEMPO REAL) ---
+# --- SPOTIFY ---
 with tab_spotify:
   st.header("🎧 Spotify Official Data")
   st.caption("Métricas consultadas en tiempo real mediante la API de Spotify.")
@@ -288,9 +304,7 @@ with tab_spotify:
           height=400,
       )
     else:
-      st.warning(
-          "No se pudieron cargar los datos de Spotify. Revisa tu conexión."
-      )
+      st.warning("No se encontraron canciones para esta selección.")
 
 # --- APPLE MUSIC ---
 with tab_apple:
@@ -302,7 +316,7 @@ with tab_yt:
   st.header("▶️ YouTube Music")
   st.write("En construcción.")
 
-# --- DEEZER (CONSERVADO CON KWORB SCRAPING) ---
+# --- DEEZER ---
 with tab_deezer:
   st.header("🔊 Deezer Charts")
 
