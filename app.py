@@ -1,4 +1,5 @@
 import datetime
+import random
 import re
 import pandas as pd
 import requests
@@ -37,12 +38,16 @@ SOLO_BTS = [
     "V",
 ]
 
-HEADERS = {
-    "User-Agent": (
+USER_AGENTS = [
+    (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
         " like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-}
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        " (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    ),
+]
 
 
 # --- CONEXIÓN API OFICIAL SPOTIFY ---
@@ -73,8 +78,10 @@ def fetch_spotify_api_tracks(artist_query, market="HN"):
     return pd.DataFrame(), datetime.datetime.now().strftime("%Y-%m-%d")
 
   try:
-    # Búsqueda directa en la API oficial de Spotify
-    results = sp.search(q=f"artist:{artist_query}", type="track", limit=20, market=market)
+    # Corrección de parámetros para evitar 'Invalid limit'
+    results = sp.search(
+        q=f'artist:"{artist_query}"', type="track", limit=20, market=str(market)
+    )
     items = results.get("tracks", {}).get("items", [])
 
     if not items:
@@ -114,7 +121,7 @@ def fetch_spotify_api_tracks(artist_query, market="HN"):
     return pd.DataFrame(), datetime.datetime.now().strftime("%Y-%m-%d")
 
 
-# --- AUXILIARES PARA DEEZER ---
+# --- AUXILIARES Y DEEZER ---
 def icon_mov(val):
   try:
     val = str(val).strip()
@@ -164,6 +171,7 @@ def es_artista_valido(text_completo):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_deezer_data(region="hn"):
+  headers = {"User-Agent": random.choice(USER_AGENTS)}
   url = (
       "https://kworb.net/deezer/country/hn.html"
       if region == "hn"
@@ -171,9 +179,9 @@ def fetch_deezer_data(region="hn"):
   )
 
   try:
-    res = requests.get(url, headers=HEADERS, timeout=8)
+    res = requests.get(url, headers=headers, timeout=8)
     if res.status_code != 200:
-      return pd.DataFrame({"Información": ["Cargando datos..."]}), ""
+      return pd.DataFrame({"Información": ["Cargando datos Deezer..."]}), ""
 
     res.encoding = "utf-8"
     soup = BeautifulSoup(res.text, "html.parser")
@@ -187,7 +195,7 @@ def fetch_deezer_data(region="hn"):
 
     table = soup.find("table")
     if not table:
-      return pd.DataFrame({"Información": ["Sin reporte disponible."]}), fecha
+      return pd.DataFrame({"Información": ["Sin reporte de Deezer."]}), fecha
 
     rows = []
     for tr in table.find_all("tr")[1:]:
@@ -210,7 +218,7 @@ def fetch_deezer_data(region="hn"):
     if df.empty:
       return (
           pd.DataFrame(
-              {"Información": ["BTS no figura en el Top actual."]}
+              {"Información": ["BTS no figura en el Top actual de Deezer."]}
           ),
           fecha,
       )
@@ -274,7 +282,9 @@ with tab_spotify:
 
   with subtab_hn:
     st.subheader(f"Top Canciones en Honduras 🇭🇳 ({artista_sel})")
-    df_sp_hn, fecha_sp_hn = fetch_spotify_api_tracks(MIEMBROS_BTS[artista_sel], market="HN")
+    df_sp_hn, fecha_sp_hn = fetch_spotify_api_tracks(
+        MIEMBROS_BTS[artista_sel], market="HN"
+    )
 
     if fecha_sp_hn:
       st.caption(f"📅 Consulta en tiempo real (API Oficial): {fecha_sp_hn}")
@@ -296,7 +306,9 @@ with tab_spotify:
 
   with subtab_global:
     st.subheader(f"Top Canciones Globales 🌍 ({artista_sel})")
-    df_sp_g, fecha_sp_g = fetch_spotify_api_tracks(MIEMBROS_BTS[artista_sel], market="US")
+    df_sp_g, fecha_sp_g = fetch_spotify_api_tracks(
+        MIEMBROS_BTS[artista_sel], market="US"
+    )
 
     if fecha_sp_g:
       st.caption(f"📅 Consulta en tiempo real (API Oficial): {fecha_sp_g}")
