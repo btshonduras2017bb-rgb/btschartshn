@@ -182,66 +182,89 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Obtención optimizada para Top Artistas de Spotify Charts
+# Obtención optimizada para Top Artistas con Fallback Anti-Bloqueo
 def get_artists_chart_official(region="hn", freq="daily"):
   spotify_region = "global" if region == "global" else "hn"
 
-  # Endpoint de la API pública de Spotify Charts
-  url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/artist-{spotify_region}-{freq}-latest"
+  kworb_url = (
+      "https://kworb.net/spotify/artists.html"
+      if spotify_region == "global"
+      else "https://kworb.net/spotify/country/hn_daily.html"
+  )
 
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-      ),
-      "Accept": "application/json, text/plain, */*",
-      "Referer": "https://charts.spotify.com/",
+      )
   }
 
+  # 1. Intento vía API pública oficial de Spotify
   try:
-    response = requests.get(url, headers=headers, timeout=10)
+    api_url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/artist-{spotify_region}-{freq}-latest"
+    res_spotify = requests.get(
+        api_url,
+        headers={
+            **headers,
+            "Accept": "application/json",
+            "Referer": "https://charts.spotify.com/",
+        },
+        timeout=4,
+    )
 
-    # Si Spotify bloquea la API interna, fallback automático a consulta alternativa
-    if response.status_code != 200:
+    if res_spotify.status_code == 200:
+      data = res_spotify.json()
+      chart_entries = data.get("chartEntryView", {}).get("entries", [])
+      rows = []
+
+      for entry in chart_entries:
+        chart_data = entry.get("chartEntryData", {})
+        puesto = str(chart_data.get("currentRank", ""))
+        artista = entry.get("artistName", "")
+
+        prev_rank = chart_data.get("previousRank", 0)
+        if prev_rank == 0 or prev_rank == int(puesto):
+          mov = "➡️ ="
+        elif prev_rank > int(puesto):
+          mov = f"🟩 +{prev_rank - int(puesto)}"
+        else:
+          mov = f"🟥 -{int(puesto) - prev_rank}"
+
+        if es_nombre_artista_valido(artista):
+          rows.append({"Pos": puesto, "Mov": mov, "Artista": artista})
+
+      df = pd.DataFrame(rows)
+      if not df.empty:
+        return df
+
+  except Exception:
+    pass
+
+  # 2. Fallback a Kworb si Spotify limita o bloquea la petición
+  try:
+    res_kworb = requests.get(kworb_url, headers=headers, timeout=8)
+    res_kworb.encoding = "utf-8"
+    soup = BeautifulSoup(res_kworb.text, "html.parser")
+
+    table = soup.find("table")
+    if not table:
       return pd.DataFrame({
-          "Información": [
-              "Spotify Charts está limitando peticiones externas en este"
-              " momento. Intenta recargar en unos minutos."
-          ]
+          "Información": ["No se pudo acceder a los datos actualmente."]
       })
 
-    data = response.json()
-    chart_entries = data.get("chartEntryView", {}).get("entries", [])
-
     rows = []
-    for entry in chart_entries:
-      chart_data = entry.get("chartEntryData", {})
-      artist_data = entry.get("trackMetadata", {})  # O la metadata del artista
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 2:
+        continue
 
-      puesto = str(chart_data.get("currentRank", ""))
-      # Extraer nombre del artista según la estructura del JSON
-      artista = entry.get("artistName", "") or artist_data.get(
-          "artists", [{}]
-      )[0].get("name", "")
+      puesto = cols[0].text.strip()
+      texto_celda = cols[1].get_text(separator=" ").strip()
 
-      # Movimiento en la lista
-      prev_rank = chart_data.get("previousRank", 0)
-      if prev_rank == 0 or prev_rank == int(puesto):
-        mov = "➡️ ="
-      elif prev_rank > int(puesto):
-        mov = f"🟩 +{prev_rank - int(puesto)}"
-      else:
-        mov = f"🟥 -{int(puesto) - prev_rank}"
-
-      if es_nombre_artista_valido(artista):
-        rows.append({
-            "Pos": puesto,
-            "Mov": mov,
-            "Artista": artista,
-        })
+      if es_nombre_artista_valido(texto_celda):
+        rows.append({"Pos": puesto, "Mov": "➡️ =", "Artista": texto_celda})
 
     df = pd.DataFrame(rows)
-
     if df.empty:
       return pd.DataFrame({
           "Información": [
@@ -249,12 +272,11 @@ def get_artists_chart_official(region="hn", freq="daily"):
               " actualmente."
           ]
       })
-
     return df
 
   except Exception as e:
     return pd.DataFrame(
-        {"Error": [f"Error al procesar el chart de artistas: {e}"]}
+        {"Error": [f"Error al obtener datos del chart de artistas: {e}"]}
     )
 
 
