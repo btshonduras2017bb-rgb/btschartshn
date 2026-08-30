@@ -76,7 +76,7 @@ def es_artista_valido(text_completo, artistas_lista=None):
     return False
 
 
-# --- OBTENCIÓN DE DATOS MEDIANTE BÚSQUEDA DIRECTA EN SPOTIFY API ---
+# --- OBTENCIÓN DE DATOS EN SPOTIFY API ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
   try:
@@ -122,9 +122,9 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
     headers = {"Authorization": f"Bearer {access_token}"}
 
     rows = []
+    # Consultamos sin restricciones geográficas estrictas para asegurar que devuelva los éxitos actuales
     for miembro in SOLO_BTS:
-      # Si se requiere por región, podemos añadir el mercado en la consulta o filtrar
-      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=15&market={region.upper()}"
+      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=25"
       res = requests.get(search_url, headers=headers)
       if res.status_code == 200:
         items = res.json().get("tracks", {}).get("items", [])
@@ -158,10 +158,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
       return (
           pd.DataFrame({
               "Información": [
-                  (
-                      "No se encontraron canciones activas de BTS o solistas"
-                      f" en {region}."
-                  )
+                  "No se encontraron canciones activas de BTS o solistas."
               ]
           }),
           datetime.datetime.now().strftime("%Y-%m-%d"),
@@ -299,7 +296,7 @@ with tab_spotify:
     )
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_d, fecha_g_d = fetch_spotify_api_charts("US", "tracks")
+      df_g_d, fecha_g_d = fetch_spotify_api_charts("Global", "tracks")
       if fecha_g_d:
         st.info(f"📅 Fecha del reporte: **{fecha_g_d}**")
       st.dataframe(
@@ -308,7 +305,7 @@ with tab_spotify:
 
     with tab_g_artists:
       st.subheader("Top Artistas - Global 🌍")
-      df_art_g_d, fecha_art_g_d = fetch_spotify_api_charts("US", "artists")
+      df_art_g_d, fecha_art_g_d = fetch_spotify_api_charts("Global", "artists")
       if fecha_art_g_d:
         st.info(f"📅 Fecha del reporte: **{fecha_art_g_d}**")
       st.dataframe(
