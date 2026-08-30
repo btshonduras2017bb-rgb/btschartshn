@@ -10,7 +10,6 @@ st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
 
-# Integrantes y nombres de BTS
 SOLO_BTS = [
     "BTS",
     "JUNG KOOK",
@@ -32,7 +31,11 @@ USER_AGENTS = [
     ),
     (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        " (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
 ]
 
@@ -85,18 +88,15 @@ def es_artista_valido(text_completo):
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def get_spotify_official_direct(
-    region="hn", period="daily", type_entry="tracks"
-):
-  """Obtiene los datos DIRECTOS de la API oficial de Spotify Charts evitando bloqueos."""
+def get_spotify_official_data(region="hn", period="daily", type_entry="tracks"):
+  """Obtiene las posiciones oficiales combinando la API pública con rotación de cabeceras."""
   chart_type = "regional" if type_entry == "tracks" else "artist"
-  url = f"https://charts-spotify-com-service.spotify.com/public/v10/charts/{chart_type}-{region}-{period}/latest"
+  target_url = f"https://charts-spotify-com-service.spotify.com/public/v10/charts/{chart_type}-{region}-{period}/latest"
 
-  session = requests.Session()
   headers = {
       "User-Agent": random.choice(USER_AGENTS),
       "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
       "Origin": "https://charts.spotify.com",
       "Referer": "https://charts.spotify.com/",
       "Sec-Fetch-Dest": "empty",
@@ -104,90 +104,187 @@ def get_spotify_official_direct(
       "Sec-Fetch-Site": "same-site",
   }
 
+  # Intento 1: API Directa de Spotify con Bypass CORS / Allorigins Proxy
+  proxy_url = (
+      f"https://api.allorigins.win/raw?url={requests.utils.quote(target_url)}"
+  )
+
   try:
-    # 1. Obtener cookie/sesión inicial de Spotify Charts
-    session.get("https://charts.spotify.com/", headers=headers, timeout=5)
-
-    # 2. Consultar el endpoint oficial de datos de hoy
-    res = session.get(url, headers=headers, timeout=8)
-
+    res = requests.get(proxy_url, headers=headers, timeout=10)
     if res.status_code == 200:
       data = res.json()
-      chart_date = data.get("chartEntry", {}).get("chartDate", "")
-      entries = (
-          data.get("chartEntry", {})
-          .get("textEntries", {})
-          .get("textChartEntries", [])
-      )
-
-      rows = []
-      for item in entries:
-        puesto = item.get("chartPosition")
-        mov_type = item.get("chartPositionEntry", {}).get("entryStatus", "")
-        mov_num = item.get("chartPositionEntry", {}).get("ranksChanged", 0)
-
-        if mov_type == "NEW":
-          mov = f"🟦 N#{puesto}"
-        elif mov_type == "RE_ENTRY":
-          mov = "🔄 Re-Entry"
-        elif mov_num > 0:
-          mov = f"🟩 +{mov_num}"
-        elif mov_num < 0:
-          mov = f"🟥 {mov_num}"
-        else:
-          mov = "➡️ ="
-
-        if type_entry == "tracks":
-          track_name = item.get("trackMetadata", {}).get("trackName", "")
-          artists = [
-              a.get("name", "")
-              for a in item.get("trackMetadata", {}).get("artists", [])
-          ]
-          artist_str = ", ".join(artists)
-          full_title = f"{artist_str} - {track_name}"
-
-          if es_artista_valido(full_title) or any(
-              es_artista_valido(a) for a in artists
-          ):
-            streams = item.get("chartPositionEntry", {}).get("streamCount", 0)
-            rows.append({
-                "Posición": f"#{puesto}",
-                "Cambio": mov,
-                "Artista & Canción": full_title,
-                "Streams": f"{streams:,}" if streams else "N/A",
-            })
-        else:
-          artist_name = item.get("artistMetadata", {}).get("artistName", "")
-          if es_artista_valido(artist_name):
-            rows.append({
-                "Posición": f"#{puesto}",
-                "Artista": artist_name,
-                "Cambio": mov,
-            })
-
-      df = pd.DataFrame(rows)
-      if df.empty:
-        return (
-            pd.DataFrame({
-                "Información": [
-                    "Sin canciones de BTS en el Top 200 oficial de hoy."
-                ]
-            }),
-            chart_date,
-        )
-
-      return df, chart_date
+      return parse_spotify_json(data, type_entry)
   except Exception:
     pass
 
-  return (
-      pd.DataFrame({
-          "Aviso": [
-              "Servidor de Spotify ocupado. Haz clic en '🔄 Actualizar Datos'."
-          ]
-      }),
-      "",
+  # Intento 2: Petición Directa con sesión
+  try:
+    s = requests.Session()
+    res = s.get(target_url, headers=headers, timeout=8)
+    if res.status_code == 200:
+      data = res.json()
+      return parse_spotify_json(data, type_entry)
+  except Exception:
+    pass
+
+  # Intento 3: Respaldo HTML Kworb (Scraping limpio de emergencia)
+  return fetch_kworb_fallback(region, period, type_entry)
+
+
+def parse_spotify_json(data, type_entry):
+  chart_date = data.get("chartEntry", {}).get("chartDate", "")
+  entries = (
+      data.get("chartEntry", {})
+      .get("textEntries", {})
+      .get("textChartEntries", [])
   )
+
+  rows = []
+  for item in entries:
+    puesto = item.get("chartPosition")
+    mov_type = item.get("chartPositionEntry", {}).get("entryStatus", "")
+    mov_num = item.get("chartPositionEntry", {}).get("ranksChanged", 0)
+
+    if mov_type == "NEW":
+      mov = f"🟦 N#{puesto}"
+    elif mov_type == "RE_ENTRY":
+      mov = "🔄 Re-Entry"
+    elif mov_num > 0:
+      mov = f"🟩 +{mov_num}"
+    elif mov_num < 0:
+      mov = f"🟥 {mov_num}"
+    else:
+      mov = "➡️ ="
+
+    if type_entry == "tracks":
+      track_name = item.get("trackMetadata", {}).get("trackName", "")
+      artists = [
+          a.get("name", "")
+          for a in item.get("trackMetadata", {}).get("artists", [])
+      ]
+      artist_str = ", ".join(artists)
+      full_title = f"{artist_str} - {track_name}"
+
+      if es_artista_valido(full_title) or any(
+          es_artista_valido(a) for a in artists
+      ):
+        streams = item.get("chartPositionEntry", {}).get("streamCount", 0)
+        rows.append({
+            "Posición": f"#{puesto}",
+            "Cambio": mov,
+            "Artista & Canción": full_title,
+            "Streams": f"{streams:,}" if streams else "N/A",
+        })
+    else:
+      artist_name = item.get("artistMetadata", {}).get("artistName", "")
+      if es_artista_valido(artist_name):
+        rows.append({
+            "Posición": f"#{puesto}",
+            "Artista": artist_name,
+            "Cambio": mov,
+        })
+
+  df = pd.DataFrame(rows)
+  if df.empty:
+    return (
+        pd.DataFrame(
+            {"Información": ["Sin posiciones registradas de BTS hoy."]}
+        ),
+        chart_date,
+    )
+
+  return df, chart_date
+
+
+def fetch_kworb_fallback(region, period, type_entry):
+  """Respaldo de datos cuando la API rechaza conexiones Cloud."""
+  if region == "hn":
+    url = (
+        "https://kworb.net/spotify/country/hn_daily.html"
+        if period == "daily"
+        else "https://kworb.net/spotify/country/hn_weekly.html"
+    )
+  else:
+    url = (
+        "https://kworb.net/spotify/country/global_daily.html"
+        if period == "daily"
+        else "https://kworb.net/spotify/country/global_weekly.html"
+    )
+
+  try:
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    res = requests.get(url, headers=headers, timeout=8)
+    if res.status_code != 200:
+      return (
+          pd.DataFrame({"Información": ["Cargando reporte de Spotify..."]}),
+          "",
+      )
+
+    res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    fecha = ""
+    subhead = soup.find("div", class_="subhead")
+    if subhead:
+      match = re.search(r"\d{4}/\d{2}/\d{2}", subhead.text)
+      if match:
+        fecha = match.group(0)
+
+    table = soup.find("table")
+    if not table:
+      return (
+          pd.DataFrame({"Información": ["No se encontraron datos hoy."]}),
+          fecha,
+      )
+
+    rows = []
+    artistas_vistos = set()
+
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        if type_entry == "tracks":
+          row_data = {
+              "Posición": f"#{puesto}",
+              "Cambio": mov,
+              "Artista & Canción": full_text,
+          }
+          if len(cols) >= 7:
+            row_data["Streams"] = cols[6].text.strip()
+          rows.append(row_data)
+        else:
+          partes = full_text.split(" - ")
+          art_name = partes[0].strip() if len(partes) > 0 else full_text
+          if art_name not in artistas_vistos:
+            artistas_vistos.add(art_name)
+            rows.append({
+                "Posición": f"#{puesto}",
+                "Artista": art_name,
+                "Cambio": mov,
+            })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+      return (
+          pd.DataFrame({
+              "Información": ["Sin posiciones registradas de BTS hoy."]
+          }),
+          fecha,
+      )
+
+    return df, fecha
+  except Exception:
+    return (
+        pd.DataFrame({"Información": ["Error al conectar con la fuente."]}),
+        "",
+    )
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -274,7 +371,7 @@ with tab_inicio:
   )
 
 with tab_spotify:
-  st.header("🎧 Spotify Official Charts (Directo de Spotify)")
+  st.header("🎧 Spotify Official Charts")
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_hn:
@@ -286,9 +383,7 @@ with tab_spotify:
       st.subheader("Top Canciones - Honduras 🇭🇳")
       c1, c2 = st.columns(2)
       with c1:
-        df_hn_d, fecha_hn_d = get_spotify_official_direct(
-            "hn", "daily", "tracks"
-        )
+        df_hn_d, fecha_hn_d = get_spotify_official_data("hn", "daily", "tracks")
         st.markdown(
             f"**Diario Oficial** `{fecha_hn_d}`"
             if fecha_hn_d
@@ -298,7 +393,7 @@ with tab_spotify:
             df_hn_d, hide_index=True, use_container_width=True, height=500
         )
       with c2:
-        df_hn_w, fecha_hn_w = get_spotify_official_direct(
+        df_hn_w, fecha_hn_w = get_spotify_official_data(
             "hn", "weekly", "tracks"
         )
         st.markdown(
@@ -312,7 +407,7 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      df_art_hn, fecha_art_hn = get_spotify_official_direct(
+      df_art_hn, fecha_art_hn = get_spotify_official_data(
           "hn", "daily", "artists"
       )
       if fecha_art_hn:
@@ -328,7 +423,7 @@ with tab_spotify:
       st.subheader("Top Canciones - Global 🌍")
       c3, c4 = st.columns(2)
       with c3:
-        df_g_d, fecha_g_d = get_spotify_official_direct(
+        df_g_d, fecha_g_d = get_spotify_official_data(
             "global", "daily", "tracks"
         )
         st.markdown(
@@ -340,7 +435,7 @@ with tab_spotify:
             df_g_d, hide_index=True, use_container_width=True, height=500
         )
       with c4:
-        df_g_w, fecha_g_w = get_spotify_official_direct(
+        df_g_w, fecha_g_w = get_spotify_official_data(
             "global", "weekly", "tracks"
         )
         st.markdown(
@@ -354,7 +449,7 @@ with tab_spotify:
 
     with tab_g_artists:
       st.subheader("Top Artistas Global 🌍")
-      df_art_g, fecha_art_g = get_spotify_official_direct(
+      df_art_g, fecha_art_g = get_spotify_official_data(
           "global", "daily", "artists"
       )
       if fecha_art_g:
@@ -396,4 +491,3 @@ with tab_redes:
   st.markdown(
       "[X / Twitter](https://x.com) | [Instagram](https://instagram.com)"
   )
-    
