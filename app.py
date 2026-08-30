@@ -87,11 +87,14 @@ def fetch_soup(url):
           " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       )
   }
-  response = requests.get(url, headers=headers, timeout=10)
-  if response.status_code != 200:
+  try:
+    response = requests.get(url, headers=headers, timeout=10)
+    if response.status_code != 200:
+      return None
+    response.encoding = "utf-8"
+    return BeautifulSoup(response.text, "html.parser")
+  except Exception:
     return None
-  response.encoding = "utf-8"
-  return BeautifulSoup(response.text, "html.parser")
 
 
 # Scraping para tablas de canciones (Kworb)
@@ -100,7 +103,7 @@ def get_kworb_data(url):
     soup = fetch_soup(url)
     if not soup:
       return pd.DataFrame(
-          {"Información": ["Chart no disponible o URL no encontrada."]}
+          {"Información": ["Este chart no está disponible actualmente."]}
       )
 
     table = soup.find("table")
@@ -150,7 +153,7 @@ def get_simple_chart(url):
     soup = fetch_soup(url)
     if not soup:
       return pd.DataFrame(
-          {"Información": ["Chart no disponible o URL no encontrada."]}
+          {"Información": ["Este chart no está disponible actualmente."]}
       )
 
     table = soup.find("table")
@@ -196,7 +199,8 @@ def get_artists_chart(url):
     if not soup:
       return pd.DataFrame({
           "Información": [
-              "El chart de artistas seleccionado no está disponible en Kworb."
+              "Kworb no provee el ranking de artistas exclusivo para este"
+              " período o región."
           ]
       })
 
@@ -210,11 +214,17 @@ def get_artists_chart(url):
       if len(cols) < 2:
         continue
 
-      # Adaptabilidad según columnas disponibles
       puesto = cols[0].text.strip()
+
       if len(cols) >= 3:
-        mov = icon_mov(cols[1].text.strip())
-        artista = cols[2].get_text(separator=" ").strip()
+        mov_txt = cols[1].text.strip()
+        # Verificar si la 2da columna es un movimiento o el nombre del artista
+        if mov_txt.startswith("+") or mov_txt.startswith("-") or mov_txt in ["=", "0", ""]:
+          mov = icon_mov(mov_txt)
+          artista = cols[2].get_text(separator=" ").strip()
+        else:
+          mov = "➡️ ="
+          artista = cols[1].get_text(separator=" ").strip()
       else:
         mov = "➡️ ="
         artista = cols[1].get_text(separator=" ").strip()
@@ -227,7 +237,7 @@ def get_artists_chart(url):
         }
 
         if len(cols) >= 4:
-          row_data["Detalle"] = cols[3].text.strip()
+          row_data["Streams / Oyentes"] = cols[3].text.strip()
 
         rows.append(row_data)
 
@@ -320,23 +330,11 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      ca1, ca2 = st.columns(2)
-      with ca1:
-        st.markdown("**Diario**")
-        df_adh = get_artists_chart(
-            "https://kworb.net/spotify/country/hn_daily_artists.html"
-        )
-        st.dataframe(
-            df_adh, hide_index=True, use_container_width=True, height=500
-        )
-      with ca2:
-        st.markdown("**Semanal**")
-        df_awh = get_artists_chart(
-            "https://kworb.net/spotify/country/hn_weekly_artists.html"
-        )
-        st.dataframe(
-            df_awh, hide_index=True, use_container_width=True, height=500
-        )
+      st.info(
+          "Nota: Kworb solo procesa el ranking global de artistas. Para ver el"
+          " rendimiento por artista en Honduras, consulta el ranking de Top"
+          " Canciones."
+      )
 
   # --- GLOBAL ---
   with subtab_global:
@@ -366,13 +364,13 @@ with tab_spotify:
       st.subheader("Top Artistas - Global 🌍")
       ca3, ca4 = st.columns(2)
       with ca3:
-        st.markdown("**Diario**")
+        st.markdown("**Top Artistas Global (Streams)**")
         df_adg = get_artists_chart("https://kworb.net/spotify/artists.html")
         st.dataframe(
             df_adg, hide_index=True, use_container_width=True, height=500
         )
       with ca4:
-        st.markdown("**Oyentes Mensuales / General**")
+        st.markdown("**Oyentes Mensuales**")
         df_awg = get_artists_chart("https://kworb.net/spotify/listeners.html")
         st.dataframe(
             df_awg, hide_index=True, use_container_width=True, height=500
