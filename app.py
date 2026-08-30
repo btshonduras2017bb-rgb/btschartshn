@@ -2,8 +2,16 @@ import io
 import re
 import pandas as pd
 import requests
+import spotipy
 import streamlit as st
 from bs4 import BeautifulSoup
+from spotipy.oauth2 import SpotifyClientCredentials
+
+# ==============================================================================
+# CONFIGURACIÓN DE CREDENCIALES SPOTIFY API (Obtenlas gratis en developer.spotify.com)
+# ==============================================================================
+SPOTIPY_CLIENT_ID = "TU_CLIENT_ID_AQUI"
+SPOTIPY_CLIENT_SECRET = "TU_CLIENT_SECRET_AQUI"
 
 # Lista principal de nombres de BTS y sus integrantes
 solo_bts = [
@@ -192,21 +200,28 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Lector de CSVs Oficiales de Spotify Charts (PASO 1 & 2 APLICADOS AQUÍ)
+# Consulta con Headers anti-bloqueo y manejo de fallos para Spotify Charts CSV
 def get_spotify_official_artists(csv_url):
-  headers = {
+  session = requests.Session()
+  session.headers.update({
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
-  }
+      ),
+      "Accept": (
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+      ),
+      "Accept-Language": "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
+      "Referer": "https://charts.spotify.com/",
+  })
+
   try:
-    response = requests.get(csv_url, headers=headers, timeout=10)
+    response = session.get(csv_url, timeout=10)
     if response.status_code != 200:
       return pd.DataFrame({
           "Información": [
-              "El reporte oficial de Spotify no está disponible en este"
-              " momento."
+              "Spotify ha protegido temporalmente la descarga de este reporte."
+              " Intenta más tarde."
           ]
       })
 
@@ -252,7 +267,7 @@ def get_spotify_official_artists(csv_url):
       return df_final
 
     return pd.DataFrame({
-        "Información": ["Estructura de datos oficial desconocida."]
+        "Información": ["Estructura de datos oficial no reconocida."]
     })
 
   except Exception as e:
@@ -331,9 +346,8 @@ with tab_spotify:
             df_hw, hide_index=True, use_container_width=True, height=500
         )
 
-    # PASO 3 APLICADO EN ESTE BLOQUE:
     with tab_hn_artists:
-      st.subheader("Top Artistas - Honduras 🇭🇳 (Datos Oficiales)")
+      st.subheader("Top Artistas - Honduras 🇭🇳 (Datos Oficiales Spotify)")
       ca1, ca2 = st.columns(2)
       with ca1:
         st.markdown("**Diario**")
@@ -377,7 +391,7 @@ with tab_spotify:
         )
 
     with tab_g_artists:
-      st.subheader("Top Artistas - Global 🌍 (Datos Oficiales)")
+      st.subheader("Top Artistas - Global 🌍 (Datos Oficiales Spotify)")
       ca3, ca4 = st.columns(2)
       with ca3:
         st.markdown("**Diario Global**")
