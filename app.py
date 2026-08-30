@@ -251,8 +251,11 @@ with tab_spotify:
           "spotify", "hn", "weekly", "tracks"
       )
 
-      # Muestra la fecha directamente abajo del título si existe
-      fecha_texto = f"📅 Fecha del reporte: {fecha_hn_d or fecha_hn_w}" if (fecha_hn_d or fecha_hn_w) else ""
+      fecha_texto = (
+          f"📅 Fecha del reporte: {fecha_hn_d or fecha_hn_w}"
+          if (fecha_hn_d or fecha_hn_w)
+          else ""
+      )
       if fecha_texto:
         st.caption(fecha_texto)
 
@@ -277,7 +280,11 @@ with tab_spotify:
           "spotify", "hn", "weekly", "artists"
       )
 
-      fecha_art_texto = f"📅 Fecha del reporte: {fecha_art_hn_d or fecha_art_hn_w}" if (fecha_art_hn_d or fecha_art_hn_w) else ""
+      fecha_art_texto = (
+          f"📅 Fecha del reporte: {fecha_art_hn_d or fecha_art_hn_w}"
+          if (fecha_art_hn_d or fecha_art_hn_w)
+          else ""
+      )
       if fecha_art_texto:
         st.caption(fecha_art_texto)
 
@@ -307,7 +314,11 @@ with tab_spotify:
           "spotify", "global", "weekly", "tracks"
       )
 
-      fecha_g_texto = f"📅 Fecha del reporte: {fecha_g_d or fecha_g_w}" if (fecha_g_d or fecha_g_w) else ""
+      fecha_g_texto = (
+          f"📅 Fecha del reporte: {fecha_g_d or fecha_g_w}"
+          if (fecha_g_d or fecha_g_w)
+          else ""
+      )
       if fecha_g_texto:
         st.caption(fecha_g_texto)
 
@@ -332,7 +343,11 @@ with tab_spotify:
           "spotify", "global", "weekly", "artists"
       )
 
-      fecha_art_g_texto = f"📅 Fecha del reporte: {fecha_art_g_d or fecha_art_g_w}" if (fecha_art_g_d or fecha_art_g_w) else ""
+      fecha_art_g_texto = (
+          f"📅 Fecha del reporte: {fecha_art_g_d or fecha_art_g_w}"
+          if (fecha_art_g_d or fecha_art_g_w)
+          else ""
+      )
       if fecha_art_g_texto:
         st.caption(fecha_art_g_texto)
 
