@@ -20,7 +20,7 @@ solo_bts = [
     "V",
 ]
 
-# Lista de User-Agents para evitar bloqueos por IP/Patrón
+# Lista de User-Agents para evitar bloqueos por IP
 USER_AGENTS = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -42,56 +42,66 @@ USER_AGENTS = [
 
 
 def icon_mov(val):
-  val = str(val).strip()
-  if val in ["=", "0", ""]:
+  try:
+    val = str(val).strip()
+    if val in ["=", "0", ""]:
+      return "➡️ ="
+    if "+" in val:
+      return f"🟩 {val}"
+    if "-" in val:
+      return f"🟥 {val}"
+    return f"🔵 {val}"
+  except Exception:
     return "➡️ ="
-  if "+" in val:
-    return f"🟩 {val}"
-  if "-" in val:
-    return f"🟥 {val}"
-  return f"🔵 {val}"
 
 
 def es_artista_valido(text_completo):
-  text_upper = text_completo.upper()
-  exclusiones = [
-      "BAD BUNNY",
-      "DEI V",
-      "OMAR COURTZ",
-      "TITO DOUBLE P",
-      "MUSA ELEVA",
-      "MUSAELEV",
-      "VELDÃ",
-      "VELDA",
-  ]
-  if any(exc in text_upper for exc in exclusiones):
+  try:
+    text_upper = str(text_completo).upper()
+    exclusiones = [
+        "BAD BUNNY",
+        "DEI V",
+        "OMAR COURTZ",
+        "TITO DOUBLE P",
+        "MUSA ELEVA",
+        "MUSAELEV",
+        "VELDÃ",
+        "VELDA",
+    ]
+    if any(exc in text_upper for exc in exclusiones):
+      return False
+
+    if any(
+        re.search(rf"\b{re.escape(member)}\b", text_upper)
+        for member in solo_bts
+    ):
+      return True
+
+    if re.search(r"\bV\b", text_upper):
+      if any(k in text_upper for k in ["BTS", "FEAT. V", "FT. V"]):
+        return True
+      partes = text_upper.split(" - ")
+      if len(partes) > 0 and re.search(r"^\bV\b", partes[0].strip()):
+        return True
+
     return False
-
-  if any(
-      re.search(rf"\b{re.escape(member)}\b", text_upper) for member in solo_bts
-  ):
-    return True
-
-  if re.search(r"\bV\b", text_upper):
-    if any(k in text_upper for k in ["BTS", "FEAT. V", "FT. V"]):
-      return True
-    partes = text_upper.split(" - ")
-    if len(partes) > 0 and re.search(r"^\bV\b", partes[0].strip()):
-      return True
-
-  return False
+  except Exception:
+    return False
 
 
 def detectar_integrante(text_completo):
-  text_upper = text_completo.upper()
-  for member in solo_bts:
-    if member == "V":
-      if re.search(r"\bV\b", text_upper):
-        return "V"
-    else:
-      if re.search(rf"\b{re.escape(member)}\b", text_upper):
-        return member
-  return "BTS"
+  try:
+    text_upper = str(text_completo).upper()
+    for member in solo_bts:
+      if member == "V":
+        if re.search(r"\bV\b", text_upper):
+          return "V"
+      else:
+        if re.search(rf"\b{re.escape(member)}\b", text_upper):
+          return member
+    return "BTS"
+  except Exception:
+    return "BTS"
 
 
 def fetch_soup(url):
@@ -100,7 +110,7 @@ def fetch_soup(url):
       "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
   }
   try:
-    response = requests.get(url, headers=headers, timeout=8)
+    response = requests.get(url, headers=headers, timeout=5)
     if response.status_code != 200:
       return None
     response.encoding = "utf-8"
@@ -111,127 +121,154 @@ def fetch_soup(url):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_kworb_data(url):
-  soup = fetch_soup(url)
-  if not soup:
+  try:
+    soup = fetch_soup(url)
+    if not soup:
+      return pd.DataFrame({
+          "Estado": [
+              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          ]
+      })
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame({
+          "Información": ["No hay datos disponibles en este momento."]
+      })
+
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        row_data = {"Pos": puesto, "Mov": mov, "Artista & Canción": full_text}
+        if len(cols) >= 7:
+          row_data["Streams"] = cols[6].text.strip()
+        rows.append(row_data)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron canciones de BTS en este chart actualmente."
+          ]
+      })
+
+    return df
+  except Exception as e:
     return pd.DataFrame({
         "Estado": [
-            "Actualización en pausa temporal. Reintentando en unos minutos."
+            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
         ]
     })
-
-  table = soup.find("table")
-  if not table:
-    return pd.DataFrame()
-
-  rows = []
-  for tr in table.find_all("tr")[1:]:
-    cols = tr.find_all("td")
-    if len(cols) < 3:
-      continue
-
-    puesto = cols[0].text.strip()
-    mov = icon_mov(cols[1].text.strip())
-    full_text = cols[2].get_text(separator=" ").strip()
-
-    if es_artista_valido(full_text):
-      row_data = {"Pos": puesto, "Mov": mov, "Artista & Canción": full_text}
-      if len(cols) >= 7:
-        row_data["Streams"] = cols[6].text.strip()
-      rows.append(row_data)
-
-  df = pd.DataFrame(rows)
-  if df.empty:
-    return pd.DataFrame({
-        "Información": [
-            "No se encontraron canciones de BTS en este chart actualmente."
-        ]
-    })
-
-  return df
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_artists_from_songs(url):
-  soup = fetch_soup(url)
-  if not soup:
+  try:
+    soup = fetch_soup(url)
+    if not soup:
+      return pd.DataFrame({
+          "Estado": [
+              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          ]
+      })
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame({
+          "Información": ["No hay datos disponibles en este momento."]
+      })
+
+    artistas_dict = {}
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      try:
+        puesto = int(cols[0].text.strip())
+      except ValueError:
+        continue
+
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        integrante = detectar_integrante(full_text)
+        if integrante not in artistas_dict:
+          artistas_dict[integrante] = puesto
+        else:
+          artistas_dict[integrante] = min(artistas_dict[integrante], puesto)
+
+    if not artistas_dict:
+      return pd.DataFrame({
+          "Información": ["No se encontraron solistas o BTS en este listado."]
+      })
+
+    filas = [
+        {"Mejor Posición Canción": f"#{pos}", "Artista": art}
+        for art, pos in sorted(artistas_dict.items(), key=lambda x: x[1])
+    ]
+    return pd.DataFrame(filas)
+  except Exception:
     return pd.DataFrame({
         "Estado": [
-            "Actualización en pausa temporal. Reintentando en unos minutos."
+            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
         ]
     })
-
-  table = soup.find("table")
-  if not table:
-    return pd.DataFrame()
-
-  artistas_dict = {}
-  for tr in table.find_all("tr")[1:]:
-    cols = tr.find_all("td")
-    if len(cols) < 3:
-      continue
-
-    try:
-      puesto = int(cols[0].text.strip())
-    except ValueError:
-      continue
-
-    full_text = cols[2].get_text(separator=" ").strip()
-
-    if es_artista_valido(full_text):
-      integrante = detectar_integrante(full_text)
-      if integrante not in artistas_dict:
-        artistas_dict[integrante] = puesto
-      else:
-        artistas_dict[integrante] = min(artistas_dict[integrante], puesto)
-
-  if not artistas_dict:
-    return pd.DataFrame({
-        "Información": ["No se encontraron solistas o BTS en este listado."]
-    })
-
-  filas = [
-      {"Mejor Posición Canción": f"#{pos}", "Artista": art}
-      for art, pos in sorted(artistas_dict.items(), key=lambda x: x[1])
-  ]
-  return pd.DataFrame(filas)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_simple_chart(url):
-  soup = fetch_soup(url)
-  if not soup:
+  try:
+    soup = fetch_soup(url)
+    if not soup:
+      return pd.DataFrame({
+          "Estado": [
+              "El proveedor limitó el acceso temporalmente. Reintentando..."
+          ]
+      })
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame({
+          "Información": ["No hay datos disponibles en este momento."]
+      })
+
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        rows.append({"Pos": puesto, "Mov": mov, "Artista & Canción": full_text})
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron canciones de BTS en este chart actualmente."
+          ]
+      })
+
+    return df
+  except Exception:
     return pd.DataFrame({
         "Estado": [
-            "Actualización en pausa temporal. Reintentando en unos minutos."
+            "No se pudieron procesar los datos. Vuelve a intentar más tarde."
         ]
     })
-
-  table = soup.find("table")
-  if not table:
-    return pd.DataFrame()
-
-  rows = []
-  for tr in table.find_all("tr")[1:]:
-    cols = tr.find_all("td")
-    if len(cols) < 3:
-      continue
-
-    puesto = cols[0].text.strip()
-    mov = icon_mov(cols[1].text.strip())
-    full_text = cols[2].get_text(separator=" ").strip()
-
-    if es_artista_valido(full_text):
-      rows.append({"Pos": puesto, "Mov": mov, "Artista & Canción": full_text})
-
-  df = pd.DataFrame(rows)
-  if df.empty:
-    return pd.DataFrame({
-        "Información": [
-            "No se encontraron canciones de BTS en este chart actualmente."
-        ]
-    })
-
-  return df
 
 
 # Configuración e Interfaz Streamlit
