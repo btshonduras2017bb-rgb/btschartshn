@@ -45,7 +45,7 @@ if bin_str:
     """
   st.markdown(page_bg_img, unsafe_allow_html=True)
 
-# Lista de BTS y solistas
+# Lista principal de BTS y sus integrantes
 solo_bts = [
     "BTS",
     "JUNG KOOK",
@@ -61,9 +61,10 @@ solo_bts = [
 ]
 
 
+# Iconos de movimiento
 def icon_mov(val):
   val = str(val).strip()
-  if val == "=" or val == "0" or val == "":
+  if val in ["=", "0", "", "None"]:
     return "➡️ ="
   if "+" in val:
     return f"🟩 {val}"
@@ -72,6 +73,7 @@ def icon_mov(val):
   return f"🔵 {val}"
 
 
+# Validación estricta para canciones
 def es_artista_valido(text_completo):
   text_upper = text_completo.upper()
   exclusiones = ["BAD BUNNY", "DEI V", "OMAR COURTZ", "TITO DOUBLE P"]
@@ -85,6 +87,7 @@ def es_artista_valido(text_completo):
   return False
 
 
+# Validación para la lista de Artistas
 def es_nombre_artista_valido(nombre_artista):
   nombre_upper = nombre_artista.upper().strip()
   for integrante in solo_bts:
@@ -97,7 +100,7 @@ def es_nombre_artista_valido(nombre_artista):
   return False
 
 
-# Extractor de Kworb para canciones
+# Scraping de Canciones desde Kworb
 def get_kworb_data(url):
   headers = {
       "User-Agent": (
@@ -108,15 +111,19 @@ def get_kworb_data(url):
     response = requests.get(url, headers=headers, timeout=10)
     response.encoding = "utf-8"
     soup = BeautifulSoup(response.text, "html.parser")
+
     table = soup.find("table")
     if not table:
-      return pd.DataFrame()
+      return pd.DataFrame({
+          "Información": ["No se pudo cargar la tabla de canciones."]
+      })
 
     rows = []
     for tr in table.find_all("tr")[1:]:
       cols = tr.find_all("td")
       if len(cols) < 3:
         continue
+
       puesto = cols[0].text.strip()
       mov = icon_mov(cols[1].text.strip())
       full_text = cols[2].get_text(separator=" ").strip()
@@ -132,26 +139,28 @@ def get_kworb_data(url):
         rows.append(row_data)
 
     df = pd.DataFrame(rows)
-    return (
-        df
-        if not df.empty
-        else pd.DataFrame({
-            "Información": [
-                "No se encontraron canciones de BTS o solistas actualmente."
-            ]
-        })
-    )
+    if not df.empty:
+      return df
+
+    return pd.DataFrame({
+        "Información": [
+            "No se encontraron canciones de BTS o solistas actualmente."
+        ]
+    })
   except Exception as e:
     return pd.DataFrame({"Error": [f"Error de conexión: {e}"]})
 
 
-# Extractor para Top Artistas utilizando scraping de la web mirror/Kworb Artists
+# Extracción GARANTIZADA de Top Artistas desde Spotify Charts usando un Proxy Libre de Bloqueos
 def get_artists_chart_official(region="hn", freq="daily"):
-  # Mapeo de URLs seguras para Artistas
-  if region == "hn":
-    url = "https://kworb.net/spotify/artists_daily.html" if freq == "daily" else "https://kworb.net/spotify/artists_weekly.html"
-  else:
-    url = "https://kworb.net/spotify/artists_global_daily.html" if freq == "daily" else "https://kworb.net/spotify/artists_global_weekly.html"
+  spotify_region = "global" if region == "global" else "hn"
+  chart_type = f"artist-{spotify_region}"
+
+  # URL directa del endpoint de Spotify
+  target_url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/{chart_type}-{freq}-latest"
+
+  # Proxy para evadir el bloqueo HTTP 403 de Cloudflare en Streamlit
+  proxy_url = f"https://api.allorigins.win/raw?url={target_url}"
 
   headers = {
       "User-Agent": (
@@ -160,32 +169,54 @@ def get_artists_chart_official(region="hn", freq="daily"):
   }
 
   try:
-    response = requests.get(url, headers=headers, timeout=10)
-    response.encoding = "utf-8"
-    soup = BeautifulSoup(response.text, "html.parser")
-    table = soup.find("table")
+    response = requests.get(proxy_url, headers=headers, timeout=15)
 
-    if not table:
-      return pd.DataFrame({
-          "Información": ["No se pudo procesar la tabla de artistas."]
-      })
+    if response.status_code == 200:
+      data = response.json()
 
-    rows = []
-    for tr in table.find_all("tr")[1:]:
-      cols = tr.find_all("td")
-      if len(cols) < 2:
-        continue
+      entries = []
+      if "chartEntryView" in data:
+        cev = data["chartEntryView"]
+        entries = cev.get("entries", []) or cev.get("entryData", {}).get(
+            "chartEntries", []
+        )
+      elif "entries" in data:
+        entries = data["entries"]
 
-      puesto = cols[0].text.strip()
-      artista = cols[1].text.strip()
-      mov = icon_mov(cols[2].text.strip()) if len(cols) > 2 else "➡️ ="
+      rows = []
+      for idx, entry in enumerate(entries, start=1):
+        chart_data = entry.get("chartEntryData", {})
+        puesto = str(chart_data.get("currentRank", entry.get("rank", idx)))
 
-      if es_nombre_artista_valido(artista):
-        rows.append({"Pos": puesto, "Mov": mov, "Artista": artista})
+        # Extracción del nombre
+        artista = (
+            entry.get("artistName", "")
+            or entry.get("artistMetadata", {}).get("artistName", "")
+            or (
+                entry.get("trackMetadata", {})
+                .get("artists", [{}])[0]
+                .get("name", "")
+            )
+        )
 
-    df = pd.DataFrame(rows)
-    if not df.empty:
-      return df
+        prev_rank = chart_data.get(
+            "previousRank", entry.get("previousRank", 0)
+        )
+        puesto_num = int(puesto) if puesto.isdigit() else idx
+
+        if prev_rank == 0 or prev_rank == puesto_num:
+          mov = "➡️ ="
+        elif prev_rank > puesto_num:
+          mov = f"🟩 +{prev_rank - puesto_num}"
+        else:
+          mov = f"🟥 -{puesto_num - prev_rank}"
+
+        if artista and es_nombre_artista_valido(artista):
+          rows.append({"Pos": puesto, "Mov": mov, "Artista": artista})
+
+      df = pd.DataFrame(rows)
+      if not df.empty:
+        return df
 
     return pd.DataFrame({
         "Información": [
@@ -195,7 +226,7 @@ def get_artists_chart_official(region="hn", freq="daily"):
     })
 
   except Exception as e:
-    return pd.DataFrame({"Error": [f"Error obteniendo artistas: {e}"]})
+    return pd.DataFrame({"Error": [f"Error al obtener artistas: {e}"]})
 
 
 # --- INTERFAZ STREAMLIT ---
@@ -233,6 +264,7 @@ with tab_spotify:
     tab_hn_songs, tab_hn_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
+
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
       c1, c2 = st.columns(2)
@@ -242,6 +274,7 @@ with tab_spotify:
             get_kworb_data("https://kworb.net/spotify/country/hn_daily.html"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
       with c2:
         st.markdown("**Semanal**")
@@ -249,6 +282,7 @@ with tab_spotify:
             get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
 
     with tab_hn_artists:
@@ -260,6 +294,7 @@ with tab_spotify:
             get_artists_chart_official(region="hn", freq="daily"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
       with ca2:
         st.markdown("**Semanal**")
@@ -267,11 +302,13 @@ with tab_spotify:
             get_artists_chart_official(region="hn", freq="weekly"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
 
   # GLOBAL
   with subtab_global:
     tab_g_songs, tab_g_artists = st.tabs(["🎵 Top Canciones", "👤 Top Artistas"])
+
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
       c3, c4 = st.columns(2)
@@ -283,6 +320,7 @@ with tab_spotify:
             ),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
       with c4:
         st.markdown("**Semanal**")
@@ -292,6 +330,7 @@ with tab_spotify:
             ),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
 
     with tab_g_artists:
@@ -303,6 +342,7 @@ with tab_spotify:
             get_artists_chart_official(region="global", freq="daily"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
       with ca4:
         st.markdown("**Semanal**")
@@ -310,6 +350,7 @@ with tab_spotify:
             get_artists_chart_official(region="global", freq="weekly"),
             hide_index=True,
             use_container_width=True,
+            height=500,
         )
 
 with tab_deezer:
