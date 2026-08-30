@@ -69,7 +69,6 @@ def es_artista_valido(text_completo):
 def es_nombre_artista_valido(nombre_artista):
   nombre_upper = nombre_artista.upper().strip()
 
-  # Coincidencia exacta o con límites de palabra para evitar que "V" coincida con otros nombres
   for integrante in solo_bts:
     if integrante == "V":
       if re.search(r"^\bV\b$", nombre_upper):
@@ -174,7 +173,7 @@ def get_simple_chart(url):
       return pd.DataFrame({
           "Información": [
               "No se encontraron canciones de BTS o sus solistas en este"
-              " chart currently."
+              " chart actualmente."
           ]
       })
 
@@ -183,45 +182,50 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Scraping para Top Artistas de Spotify en Kworb
-def get_artists_chart(url):
+# Descarga y filtrado oficial para Top Artistas de Spotify Charts
+def get_artists_chart_official(region="hn", freq="daily"):
+  spotify_region = "global" if region == "global" else "hn"
+  url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/artist-{spotify_region}-{freq}-latest/download"
+
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       )
   }
+
   try:
     response = requests.get(url, headers=headers, timeout=10)
-    response.encoding = "utf-8"
-    soup = BeautifulSoup(response.text, "html.parser")
+    if response.status_code != 200:
+      return pd.DataFrame({
+          "Información": [
+              "No se pudieron consultar los datos oficiales de Spotify Charts"
+              " en este momento."
+          ]
+      })
 
-    table = soup.find("table")
-    if not table:
-      return pd.DataFrame()
+    csv_data = io.StringIO(response.text)
+    df_raw = pd.read_csv(csv_data)
 
     rows = []
-    for tr in table.find_all("tr")[1:]:
-      cols = tr.find_all("td")
-      if len(cols) < 3:
-        continue
+    for idx, row in df_raw.iterrows():
+      puesto = str(row.get("rank", idx + 1))
+      artista = str(row.get("artist_name", "")).strip()
 
-      puesto = cols[0].text.strip()
-      mov = icon_mov(cols[1].text.strip())
-      artista = cols[2].get_text(separator=" ").strip()
+      change = row.get("change_player", 0)
+      if pd.isna(change) or change == 0:
+        mov = "➡️ ="
+      elif change > 0:
+        mov = f"🟩 +{int(change)}"
+      else:
+        mov = f"🟥 {int(change)}"
 
       if es_nombre_artista_valido(artista):
-        row_data = {
+        rows.append({
             "Pos": puesto,
             "Mov": mov,
             "Artista": artista,
-        }
-
-        # Si la tabla incluye streams o días en chart
-        if len(cols) >= 4:
-          row_data["Puntos / Streams"] = cols[3].text.strip()
-
-        rows.append(row_data)
+        })
 
     df = pd.DataFrame(rows)
 
@@ -234,8 +238,11 @@ def get_artists_chart(url):
       })
 
     return df
+
   except Exception as e:
-    return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
+    return pd.DataFrame(
+        {"Error": [f"Error al procesar el chart de artistas: {e}"]}
+    )
 
 
 # Configuración de la página en Streamlit
@@ -282,7 +289,6 @@ with tab_inicio:
 with tab_spotify:
   st.header("🎧 Spotify Charts (Filtro Exclusivo BTS)")
 
-  # Pestañas principales de región
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   # --- HONDURAS ---
@@ -316,17 +322,13 @@ with tab_spotify:
       ca1, ca2 = st.columns(2)
       with ca1:
         st.markdown("**Diario**")
-        df_adh = get_artists_chart(
-            "https://kworb.net/spotify/artists_hn_daily.html"
-        )
+        df_adh = get_artists_chart_official(region="hn", freq="daily")
         st.dataframe(
             df_adh, hide_index=True, use_container_width=True, height=500
         )
       with ca2:
         st.markdown("**Semanal**")
-        df_awh = get_artists_chart(
-            "https://kworb.net/spotify/artists_hn_weekly.html"
-        )
+        df_awh = get_artists_chart_official(region="hn", freq="weekly")
         st.dataframe(
             df_awh, hide_index=True, use_container_width=True, height=500
         )
@@ -360,17 +362,13 @@ with tab_spotify:
       ca3, ca4 = st.columns(2)
       with ca3:
         st.markdown("**Diario**")
-        df_adg = get_artists_chart(
-            "https://kworb.net/spotify/artists_global_daily.html"
-        )
+        df_adg = get_artists_chart_official(region="global", freq="daily")
         st.dataframe(
             df_adg, hide_index=True, use_container_width=True, height=500
         )
       with ca4:
         st.markdown("**Semanal**")
-        df_awg = get_artists_chart(
-            "https://kworb.net/spotify/artists_global_weekly.html"
-        )
+        df_awg = get_artists_chart_official(region="global", freq="weekly")
         st.dataframe(
             df_awg, hide_index=True, use_container_width=True, height=500
         )
