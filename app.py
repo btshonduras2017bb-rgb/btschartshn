@@ -45,18 +45,25 @@ HEADERS = {
 }
 
 
-# --- FUNCIONES SPOTIFY (API OFICIAL) ---
+# --- FUNCIONES SPOTIFY (API OFICIAL CON BACKUP DE SECRETS) ---
 def get_spotify_client():
   try:
-    client_id = st.secrets.get("SPOTIPY_CLIENT_ID")
-    client_secret = st.secrets.get("SPOTIPY_CLIENT_SECRET")
+    # Intenta leer desde los secrets de Streamlit o usa las claves directas como respaldo
+    client_id = st.secrets.get(
+        "SPOTIPY_CLIENT_ID", "9823fd0dcfb740ad94eb5c7ceb1d4809"
+    )
+    client_secret = st.secrets.get(
+        "SPOTIPY_CLIENT_SECRET", "896a2fd912e24a22b8560bbf15d07200"
+    )
+
     if client_id and client_secret:
       auth_manager = SpotifyClientCredentials(
-          client_id=client_id, client_secret=client_secret
+          client_id=str(client_id).strip(),
+          client_secret=str(client_secret).strip(),
       )
       return spotipy.Spotify(auth_manager=auth_manager)
-  except Exception:
-    pass
+  except Exception as e:
+    st.error(f"Error de conexión con Spotify: {e}")
   return None
 
 
@@ -90,7 +97,8 @@ def get_artist_top_tracks(artist_name):
 
     df = pd.DataFrame(tracks_data)
     return df, artist_full_name
-  except Exception:
+  except Exception as e:
+    st.error(f"Error al obtener canciones: {e}")
     return None, None
 
 
@@ -254,7 +262,7 @@ with tab_inicio:
       " Honduras."
   )
 
-# --- SPOTIFY (SOLO API KITS/OFICIAL) ---
+# --- SPOTIFY (API OFICIAL EN TIEMPO REAL) ---
 with tab_spotify:
   st.header("🎧 Spotify Official Data")
   st.caption("Métricas consultadas en tiempo real mediante la API de Spotify.")
@@ -281,8 +289,7 @@ with tab_spotify:
       )
     else:
       st.warning(
-          "No se pudieron cargar los datos de la API de Spotify. Revisa tus"
-          " Secrets en Streamlit."
+          "No se pudieron cargar los datos de Spotify. Revisa tu conexión."
       )
 
 # --- APPLE MUSIC ---
@@ -295,7 +302,7 @@ with tab_yt:
   st.header("▶️ YouTube Music")
   st.write("En construcción.")
 
-# --- DEEZER (CONSERVADO TAL COMO ESTABA) ---
+# --- DEEZER (CONSERVADO CON KWORB SCRAPING) ---
 with tab_deezer:
   st.header("🔊 Deezer Charts")
 
