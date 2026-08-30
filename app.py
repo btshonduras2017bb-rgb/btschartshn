@@ -257,9 +257,8 @@ with tab_spotify:
 
       fecha_ref = fecha_hn_d or fecha_hn_w
       if fecha_ref:
-        st.caption(
-            f"📅 Los datos mostrados coinciden con la última actualización de"
-            f" Kworb (Fecha del reporte: **{fecha_ref}**)"
+        st.info(
+            f"📅 Fecha de actualización oficial obtenida de Kworb: **{fecha_ref}**"
         )
 
       c1, c2 = st.columns(2)
@@ -285,9 +284,9 @@ with tab_spotify:
 
       fecha_ref_art = fecha_art_hn_d or fecha_art_hn_w
       if fecha_ref_art:
-        st.caption(
-            f"📅 Los datos mostrados coinciden con la última actualización de"
-            f" Kworb (Fecha del reporte: **{fecha_ref_art}**)"
+        st.info(
+            f"📅 Fecha de actualización oficial obtenida de Kworb:"
+            f" **{fecha_ref_art}**"
         )
 
       c_a1, c_a2 = st.columns(2)
@@ -317,9 +316,9 @@ with tab_spotify:
 
       fecha_ref_g = fecha_g_d or fecha_g_w
       if fecha_ref_g:
-        st.caption(
-            f"📅 Los datos mostrados coinciden con la última actualización de"
-            f" Kworb (Fecha del reporte: **{fecha_ref_g}**)"
+        st.info(
+            f"📅 Fecha de actualización oficial obtenida de Kworb:"
+            f" **{fecha_ref_g}**"
         )
 
       c3, c4 = st.columns(2)
@@ -345,9 +344,9 @@ with tab_spotify:
 
       fecha_ref_g_art = fecha_art_g_d or fecha_art_g_w
       if fecha_ref_g_art:
-        st.caption(
-            f"📅 Los datos mostrados coinciden con la última actualización de"
-            f" Kworb (Fecha del reporte: **{fecha_ref_g_art}**)"
+        st.info(
+            f"📅 Fecha de actualización oficial obtenida de Kworb:"
+            f" **{fecha_ref_g_art}**"
         )
 
       c_g1, c_g2 = st.columns(2)
@@ -368,24 +367,24 @@ with tab_apple:
   subtab_am_hn, subtab_am_g = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_am_hn:
-    st.subheader("Top Apple Music Honduras 🇭🇳")
+    st.subheader("Top Apple Music - Honduras 🇭🇳")
     df_am_hn, fecha_am_hn = fetch_kworb_data("apple", "hn")
     if fecha_am_hn:
-      st.caption(
-          f"📅 Los datos mostrados coinciden con la última actualización de"
-          f" Kworb (Fecha del reporte: **{fecha_am_hn}**)"
+      st.info(
+          f"📅 Fecha de actualización oficial obtenida de Kworb:"
+          f" **{fecha_am_hn}**"
       )
     st.dataframe(
         df_am_hn, hide_index=True, use_container_width=True, height=450
     )
 
   with subtab_am_g:
-    st.subheader("Top Apple Music Global 🌍")
+    st.subheader("Top Apple Music - Global 🌍")
     df_am_g, fecha_am_g = fetch_kworb_data("apple", "global")
     if fecha_am_g:
-      st.caption(
-          f"📅 Los datos mostrados coinciden con la última actualización de"
-          f" Kworb (Fecha del reporte: **{fecha_am_g}**)"
+      st.info(
+          f"📅 Fecha de actualización oficial obtenida de Kworb:"
+          f" **{fecha_am_g}**"
       )
     st.dataframe(
         df_am_g, hide_index=True, use_container_width=True, height=450
@@ -405,9 +404,9 @@ with tab_deezer:
     st.subheader("Top Deezer Honduras 🇭🇳")
     df_dz_hn, fecha_dz_hn = fetch_kworb_data("deezer", "hn")
     if fecha_dz_hn:
-      st.caption(
-          f"📅 Los datos mostrados coinciden con la última actualización de"
-          f" Kworb (Fecha del reporte: **{fecha_dz_hn}**)"
+      st.info(
+          f"📅 Fecha de actualización oficial obtenida de Kworb:"
+          f" **{fecha_dz_hn}**"
       )
     st.dataframe(
         df_dz_hn, hide_index=True, use_container_width=True, height=450
@@ -417,9 +416,9 @@ with tab_deezer:
     st.subheader("Top Deezer Global 🌍")
     df_dz_g, fecha_dz_g = fetch_kworb_data("deezer", "global")
     if fecha_dz_g:
-      st.caption(
-          f"📅 Los datos mostrados coinciden con la última actualización de"
-          f" Kworb (Fecha del reporte: **{fecha_dz_g}**)"
+      st.info(
+          f"📅 Fecha de actualización oficial obtenida de Kworb:"
+          f" **{fecha_dz_g}**"
       )
     st.dataframe(
         df_dz_g, hide_index=True, use_container_width=True, height=450
