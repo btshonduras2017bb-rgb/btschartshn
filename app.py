@@ -180,12 +180,7 @@ st.write(
     "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
 )
 
-st.image(
-    "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
-    use_container_width=True,
-)
-
-# Menú principal mediante pestañas (Tabs)
+# Menú principal mediante pestañas (Tabs) colocado arriba de la imagen
 (
     tab_inicio,
     tab_spotify,
@@ -203,6 +198,14 @@ st.image(
 ])
 
 with tab_inicio:
+  # Mostrar imagen reducida en la pestaña de Inicio mediante columnas
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.image(
+        "https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096",
+        width=450,
+    )
+
   st.header("Sobre Nosotros")
   st.write(
       "Aquí encontrarás las novedades, proyectos de streaming y estadísticas"
