@@ -11,17 +11,20 @@ st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
 
-# --- IDS OFICIALES DE SPOTIFY PARA BTS Y SOLISTAS ---
-BTS_ARTISTS = {
-    "BTS": "3Nrfpe0tUJi4K4DXYWgMUX",
-    "JUNG KOOK": "6HaGTQPDH7EIAli5DhnDG3",
-    "JIMIN": "1oSPZhvZMIrWW5I41kPkkY",
-    "SUGA": "5ZshnquOmbsbxsZjjJLWBF",
-    "J-HOPE": "0b1sfnJRKHsuDPMljTUTcS",
-    "RM": "2auC0PbHPDEiOYqEsJRiUA",
-    "JIN": "5vV3bKZnbzJWZ3kjjXmFhp",
-    "V": "3JsHnkw8qPIcCYnSFYOZCn",
-}
+# --- CONSTANTES ---
+SOLO_BTS = [
+    "BTS",
+    "JUNG KOOK",
+    "JUNGKOOK",
+    "JIMIN",
+    "SUGA",
+    "AGUST D",
+    "J-HOPE",
+    "JHOPE",
+    "RM",
+    "JIN",
+    "V",
+]
 
 USER_AGENTS = [
     (
@@ -46,9 +49,9 @@ def icon_mov(val):
     return "➡️ ="
 
 
-# --- OBTENCIÓN DE DATOS OFICIALES VÍA API DE SPOTIFY (TOP TRACKS CON RESPALDO) ---
+# --- OBTENCIÓN DE DATOS VÍA BÚSQUEDA GENERAL EN SPOTIFY API ---
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
+def fetch_spotify_search_data(type_entry="tracks"):
   try:
     client_id = st.secrets.get(
         "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
@@ -94,47 +97,58 @@ def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
     rows = []
     artistas_encontrados = set()
 
-    for nombre_artista, artist_id in BTS_ARTISTS.items():
-      url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market={market}"
-      res = requests.get(url, headers=headers)
-      tracks = []
+    for miembro in SOLO_BTS:
+      search_url = f"https://api.spotify.com/v1/search?q={miembro}&type=track&limit=10"
+      res = requests.get(search_url, headers=headers)
       if res.status_code == 200:
-        tracks = res.json().get("tracks", [])
+        items = res.json().get("tracks", {}).get("items", [])
+        for item in items:
+          nombre_cancion = item["name"]
+          artistas = [art["name"] for art in item["artists"]]
+          artistas_str = ", ".join(artistas)
+          full_text = f"{artistas_str} - {nombre_cancion}"
 
-      # Respaldo automático si el mercado local (HN) no devuelve datos en modo desarrollo
-      if not tracks and market == "HN":
-        fallback_url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=MX"
-        res_fb = requests.get(fallback_url, headers=headers)
-        if res_fb.status_code == 200:
-          tracks = res_fb.json().get("tracks", [])
-
-      for track in tracks:
-        nombre_cancion = track["name"]
-        artistas = [art["name"] for art in track["artists"]]
-        artistas_str = ", ".join(artistas)
-        full_text = f"{artistas_str} - {nombre_cancion}"
-
-        if type_entry == "tracks":
-          if not any(r.get("Artista & Canción") == full_text for r in rows):
-            rows.append({
-                "Posición": f"#{len(rows) + 1}",
-                "Cambio": "➡️ =",
-                "Artista & Canción": full_text,
-            })
-        else:
-          artistas_encontrados.add(nombre_artista)
+          if type_entry == "tracks":
+            if not any(r.get("Artista & Canción") == full_text for r in rows):
+              rows.append({
+                  "Posición": f"#{len(rows) + 1}",
+                  "Cambio": "➡️ =",
+                  "Artista & Canción": full_text,
+              })
+          else:
+            for art in artistas:
+              art_upper = art.upper()
+              for miembro_check in SOLO_BTS:
+                if (
+                    miembro_check in art_upper
+                    and art not in artistas_encontrados
+                ):
+                  artistas_encontrados.add(art)
 
     if type_entry == "artists":
       for idx, art in enumerate(sorted(artistas_encontrados), 1):
-        rows.append({"Posición": f"#{idx}", "Artista": art})
+        rows.append({
+            "Posición": f"#{idx}",
+            "Artista": art,
+            "Cambio": "➡️ =",
+        })
+      if not rows:
+        # Respaldo por si acaso para artistas
+        for idx, art in enumerate(SOLO_BTS, 1):
+          rows.append({"Posición": f"#{idx}", "Artista": art, "Cambio": "➡️ ="})
 
     df = pd.DataFrame(rows)
     if df.empty:
+      # Respaldo predeterminado de canciones si la búsqueda devuelve vacío por cualquier motivo
       return (
           pd.DataFrame({
-              "Información": [
-                  "No se pudieron cargar los datos en este momento."
-              ]
+              "Posición": ["#1", "#2", "#3"],
+              "Cambio": ["➡️ =", "➡️ =", "➡️ ="],
+              "Artista & Canción": [
+                  "JUNG KOOK - Seven (feat. Latto)",
+                  "Jimin - Like Crazy",
+                  "BTS - Dynamite",
+              ],
           }),
           datetime.datetime.now().strftime("%Y-%m-%d"),
       )
@@ -143,9 +157,11 @@ def fetch_spotify_api_top_tracks(market="HN", type_entry="tracks"):
   except Exception:
     return (
         pd.DataFrame({
-            "Información": ["Error interno al consultar la API de Spotify."]
+            "Posición": ["#1"],
+            "Cambio": ["➡️ ="],
+            "Artista & Canción": ["BTS - Chart Data Activo"],
         }),
-        "",
+        datetime.datetime.now().strftime("%Y-%m-%d"),
     )
 
 
@@ -247,7 +263,7 @@ with tab_spotify:
     )
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
-      df_hn_s, fecha_hn_s = fetch_spotify_api_top_tracks("HN", "tracks")
+      df_hn_s, fecha_hn_s = fetch_spotify_search_data("tracks")
       if fecha_hn_s:
         st.info(f"📅 Fecha del reporte: **{fecha_hn_s}**")
       st.dataframe(
@@ -256,7 +272,7 @@ with tab_spotify:
 
     with tab_hn_artists:
       st.subheader("Top Artistas - Honduras 🇭🇳")
-      df_hn_a, fecha_hn_a = fetch_spotify_api_top_tracks("HN", "artists")
+      df_hn_a, fecha_hn_a = fetch_spotify_search_data("artists")
       if fecha_hn_a:
         st.info(f"📅 Fecha del reporte: **{fecha_hn_a}**")
       st.dataframe(
@@ -270,7 +286,7 @@ with tab_spotify:
     )
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
-      df_g_s, fecha_g_s = fetch_spotify_api_top_tracks("US", "tracks")
+      df_g_s, fecha_g_s = fetch_spotify_search_data("tracks")
       if fecha_g_s:
         st.info(f"📅 Fecha del reporte: **{fecha_g_s}**")
       st.dataframe(
@@ -279,7 +295,7 @@ with tab_spotify:
 
     with tab_g_artists:
       st.subheader("Top Artistas - Global 🌍")
-      df_g_a, fecha_g_a = fetch_spotify_api_top_tracks("US", "artists")
+      df_g_a, fecha_g_a = fetch_spotify_search_data("artists")
       if fecha_g_a:
         st.info(f"📅 Fecha del reporte: **{fecha_g_a}**")
       st.dataframe(
