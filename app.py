@@ -108,6 +108,12 @@ def fetch_kworb_data(
           if period == "daily"
           else "https://kworb.net/spotify/country/global_weekly.html"
       )
+  elif service == "apple":
+    url = (
+        "https://kworb.net/apple/country/hn.html"
+        if region == "hn"
+        else "https://kworb.net/apple/country/global.html"
+    )
   else:
     url = (
         "https://kworb.net/deezer/country/hn.html"
@@ -159,7 +165,7 @@ def fetch_kworb_data(
               "Cambio": mov,
               "Artista & Canción": full_text,
           }
-          if len(cols) >= 7:
+          if len(cols) >= 7 and service == "spotify":
             row_data["Streams"] = cols[6].text.strip()
           rows.append(row_data)
         else:
@@ -234,14 +240,12 @@ with tab_inicio:
 # --- SPOTIFY CHARTS ---
 with tab_spotify:
   st.header("🎧 Spotify Charts")
-
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_hn:
     tab_hn_songs, tab_hn_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
-
     with tab_hn_songs:
       st.subheader("Top Canciones - Honduras 🇭🇳")
       df_hn_d, fecha_hn_d = fetch_kworb_data(
@@ -251,13 +255,12 @@ with tab_spotify:
           "spotify", "hn", "weekly", "tracks"
       )
 
-      fecha_texto = (
-          f"📅 Fecha del reporte: {fecha_hn_d or fecha_hn_w}"
-          if (fecha_hn_d or fecha_hn_w)
-          else ""
-      )
-      if fecha_texto:
-        st.caption(fecha_texto)
+      fecha_ref = fecha_hn_d or fecha_hn_w
+      if fecha_ref:
+        st.caption(
+            f"📅 Los datos mostrados coinciden con la última actualización de"
+            f" Kworb (Fecha del reporte: **{fecha_ref}**)"
+        )
 
       c1, c2 = st.columns(2)
       with c1:
@@ -280,13 +283,12 @@ with tab_spotify:
           "spotify", "hn", "weekly", "artists"
       )
 
-      fecha_art_texto = (
-          f"📅 Fecha del reporte: {fecha_art_hn_d or fecha_art_hn_w}"
-          if (fecha_art_hn_d or fecha_art_hn_w)
-          else ""
-      )
-      if fecha_art_texto:
-        st.caption(fecha_art_texto)
+      fecha_ref_art = fecha_art_hn_d or fecha_art_hn_w
+      if fecha_ref_art:
+        st.caption(
+            f"📅 Los datos mostrados coinciden con la última actualización de"
+            f" Kworb (Fecha del reporte: **{fecha_ref_art}**)"
+        )
 
       c_a1, c_a2 = st.columns(2)
       with c_a1:
@@ -304,7 +306,6 @@ with tab_spotify:
     tab_g_songs, tab_g_artists = st.tabs(
         ["🎵 Top Canciones", "👤 Top Artistas"]
     )
-
     with tab_g_songs:
       st.subheader("Top Canciones - Global 🌍")
       df_g_d, fecha_g_d = fetch_kworb_data(
@@ -314,13 +315,12 @@ with tab_spotify:
           "spotify", "global", "weekly", "tracks"
       )
 
-      fecha_g_texto = (
-          f"📅 Fecha del reporte: {fecha_g_d or fecha_g_w}"
-          if (fecha_g_d or fecha_g_w)
-          else ""
-      )
-      if fecha_g_texto:
-        st.caption(fecha_g_texto)
+      fecha_ref_g = fecha_g_d or fecha_g_w
+      if fecha_ref_g:
+        st.caption(
+            f"📅 Los datos mostrados coinciden con la última actualización de"
+            f" Kworb (Fecha del reporte: **{fecha_ref_g}**)"
+        )
 
       c3, c4 = st.columns(2)
       with c3:
@@ -343,13 +343,12 @@ with tab_spotify:
           "spotify", "global", "weekly", "artists"
       )
 
-      fecha_art_g_texto = (
-          f"📅 Fecha del reporte: {fecha_art_g_d or fecha_art_g_w}"
-          if (fecha_art_g_d or fecha_art_g_w)
-          else ""
-      )
-      if fecha_art_g_texto:
-        st.caption(fecha_art_g_texto)
+      fecha_ref_g_art = fecha_art_g_d or fecha_art_g_w
+      if fecha_ref_g_art:
+        st.caption(
+            f"📅 Los datos mostrados coinciden con la última actualización de"
+            f" Kworb (Fecha del reporte: **{fecha_ref_g_art}**)"
+        )
 
       c_g1, c_g2 = st.columns(2)
       with c_g1:
@@ -365,8 +364,32 @@ with tab_spotify:
 
 # --- APPLE MUSIC ---
 with tab_apple:
-  st.header("📊 Apple Music")
-  st.write("En construcción.")
+  st.header("📊 Apple Music Charts")
+  subtab_am_hn, subtab_am_g = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
+
+  with subtab_am_hn:
+    st.subheader("Top Apple Music Honduras 🇭🇳")
+    df_am_hn, fecha_am_hn = fetch_kworb_data("apple", "hn")
+    if fecha_am_hn:
+      st.caption(
+          f"📅 Los datos mostrados coinciden con la última actualización de"
+          f" Kworb (Fecha del reporte: **{fecha_am_hn}**)"
+      )
+    st.dataframe(
+        df_am_hn, hide_index=True, use_container_width=True, height=450
+    )
+
+  with subtab_am_g:
+    st.subheader("Top Apple Music Global 🌍")
+    df_am_g, fecha_am_g = fetch_kworb_data("apple", "global")
+    if fecha_am_g:
+      st.caption(
+          f"📅 Los datos mostrados coinciden con la última actualización de"
+          f" Kworb (Fecha del reporte: **{fecha_am_g}**)"
+      )
+    st.dataframe(
+        df_am_g, hide_index=True, use_container_width=True, height=450
+    )
 
 # --- YOUTUBE MUSIC ---
 with tab_yt:
@@ -376,14 +399,16 @@ with tab_yt:
 # --- DEEZER ---
 with tab_deezer:
   st.header("🔊 Deezer Charts")
-
   subtab_dz_hn, subtab_dz_g = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_dz_hn:
     st.subheader("Top Deezer Honduras 🇭🇳")
     df_dz_hn, fecha_dz_hn = fetch_kworb_data("deezer", "hn")
     if fecha_dz_hn:
-      st.caption(f"📅 Fecha del reporte: {fecha_dz_hn}")
+      st.caption(
+          f"📅 Los datos mostrados coinciden con la última actualización de"
+          f" Kworb (Fecha del reporte: **{fecha_dz_hn}**)"
+      )
     st.dataframe(
         df_dz_hn, hide_index=True, use_container_width=True, height=450
     )
@@ -392,7 +417,10 @@ with tab_deezer:
     st.subheader("Top Deezer Global 🌍")
     df_dz_g, fecha_dz_g = fetch_kworb_data("deezer", "global")
     if fecha_dz_g:
-      st.caption(f"📅 Fecha del reporte: {fecha_dz_g}")
+      st.caption(
+          f"📅 Los datos mostrados coinciden con la última actualización de"
+          f" Kworb (Fecha del reporte: **{fecha_dz_g}**)"
+      )
     st.dataframe(
         df_dz_g, hide_index=True, use_container_width=True, height=450
     )
