@@ -22,7 +22,6 @@ SOLO_BTS = [
     "JHOPE",
     "RM",
     "JIN",
-    "V",
 ]
 
 USER_AGENTS = [
@@ -56,11 +55,22 @@ def es_artista_valido(text_completo):
   try:
     text_upper = str(text_completo).upper()
 
-    # Validar si alguno de los miembros o BTS está presente como artista principal o en el texto
+    # 1. Validar miembros habituales de BTS (palabra completa)
     for miembro in SOLO_BTS:
-      # Verificamos que el nombre aparezca como palabra independiente para evitar falsos positivos
-      pattern = rf"\b{re.escape(miembro)}\b"
-      if re.search(pattern, text_upper):
+      if re.search(rf"\b{re.escape(miembro)}\b", text_upper):
+        return True
+
+    # 2. Validación estricta para el artista "V" (evitando confundirlo con letras sueltas de otras canciones)
+    # Buscamos que aparezca como artista principal al inicio de la línea o separado antes de un guión (-)
+    partes = text_upper.split(" - ")
+    if len(partes) > 0:
+      artista_principal = partes[0].strip()
+      # Verificamos si el artista principal es exactamente "V" o incluye " V " como parte de su nombre
+      if (
+          artista_principal == "V"
+          or re.search(r"\bV\b", artista_principal)
+          and ("BTS" in text_upper or "FEAT" in text_upper)
+      ):
         return True
 
     return False
