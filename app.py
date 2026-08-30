@@ -65,18 +65,17 @@ def es_artista_valido(text_completo):
   return False
 
 
-# Validación específica para la lista de Artistas
-def es_nombre_artista_valido(nombre_artista):
-  nombre_upper = nombre_artista.upper().strip()
-
-  for integrante in solo_bts:
-    if integrante == "V":
-      if re.search(r"^\bV\b$", nombre_upper):
-        return True
+# Extraer el nombre específico del integrante/grupo del texto completo
+def detectar_integrante(text_completo):
+  text_upper = text_completo.upper()
+  for member in solo_bts:
+    if member == "V":
+      if re.search(r"\bV\b", text_upper):
+        return "V"
     else:
-      if re.search(rf"\b{re.escape(integrante)}\b", nombre_upper):
-        return True
-  return False
+      if re.search(rf"\b{re.escape(member)}\b", text_upper):
+        return member
+  return "BTS"
 
 
 # Fetch auxiliar
@@ -98,7 +97,7 @@ def fetch_soup(url):
 
 
 # Scraping para tablas de canciones (Kworb)
-@st.cache_data(ttl=1800)  # Guarda la información por 30 minutos
+@st.cache_data(ttl=1800)
 def get_kworb_data(url):
   try:
     soup = fetch_soup(url)
@@ -148,7 +147,63 @@ def get_kworb_data(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Scraping para tablas simples (Deezer)
+# Generador de Top Artistas basado en las canciones activas en el Chart (Robusto y sin bloqueos)
+@st.cache_data(ttl=1800)
+def get_artists_from_songs(url):
+  try:
+    soup = fetch_soup(url)
+    if not soup:
+      return pd.DataFrame(
+          {"Información": ["Este chart no está disponible actualmente."]}
+      )
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame()
+
+    artistas_dict = {}
+
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      try:
+        puesto = int(cols[0].text.strip())
+      except ValueError:
+        continue
+
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        integrante = detectar_integrante(full_text)
+
+        # Guardar la mejor posición alcanzada en el chart por cada solista/grupo
+        if integrante not in artistas_dict:
+          artistas_dict[integrante] = puesto
+        else:
+          artistas_dict[integrante] = min(artistas_dict[integrante], puesto)
+
+    if not artistas_dict:
+      return pd.DataFrame({
+          "Información": [
+              "No se encontraron integrantes de BTS en este listado"
+              " actualmente."
+          ]
+      })
+
+    # Crear DataFrame ordenado por mejor posición
+    filas = [
+        {"Mejor Posición Canción": f"#{pos}", "Artista": art}
+        for art, pos in sorted(artistas_dict.items(), key=lambda x: x[1])
+    ]
+    return pd.DataFrame(filas)
+
+  except Exception as e:
+    return pd.DataFrame({"Error": [f"No se pudieron procesar los datos: {e}"]})
+
+
+# Scraping para Deezer
 @st.cache_data(ttl=1800)
 def get_simple_chart(url):
   try:
@@ -192,91 +247,6 @@ def get_simple_chart(url):
     return df
   except Exception as e:
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
-
-
-# Consulta con Caché e Inmunidad a Caídas para CSVs de Spotify
-@st.cache_data(ttl=3600)  # Guarda en memoria por 1 hora para evitar rate limit
-def get_spotify_official_artists(csv_url):
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      ),
-      "Accept": (
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-      ),
-      "Referer": "https://charts.spotify.com/",
-  }
-
-  try:
-    response = requests.get(csv_url, headers=headers, timeout=10)
-
-    # Si Spotify aplica bloqueo temporal (HTTP 403 / 429)
-    if response.status_code != 200:
-      return pd.DataFrame({
-          "Información": [
-              "Spotify Charts ha pausado temporalmente el acceso directo."
-              " Consulta el Top Canciones."
-          ]
-      })
-
-    # Verificar que el contenido devuelto sea un CSV real y no una redirección HTML
-    if response.text.strip().startswith("<"):
-      return pd.DataFrame({
-          "Información": [
-              "Spotify requiere inicio de sesión en navegador para este"
-              " desglose."
-          ]
-      })
-
-    csv_data = io.StringIO(response.text)
-    df = pd.read_csv(csv_data)
-
-    if "rank" in df.columns and "artist_names" in df.columns:
-      df_filtrado = df[
-          df["artist_names"].apply(
-              lambda x: es_nombre_artista_valido(str(x))
-          )
-      ].copy()
-
-      if df_filtrado.empty:
-        return pd.DataFrame({
-            "Información": [
-                "No se encontraron integrantes de BTS en este listado."
-            ]
-        })
-
-      df_final = pd.DataFrame({
-          "Pos": df_filtrado["rank"],
-          "Artista": df_filtrado["artist_names"],
-      })
-
-      if "previous_rank" in df_filtrado.columns:
-
-        def calcular_mov(row):
-          prev = row["previous_rank"]
-          curr = row["rank"]
-          if pd.isna(prev) or prev == -1:
-            return "🆕 Nueva"
-          diff = int(prev) - int(curr)
-          if diff > 0:
-            return f"🟩 +{diff}"
-          elif diff < 0:
-            return f"🟥 {diff}"
-          return "➡️ ="
-
-        df_final["Mov"] = df_filtrado.apply(calcular_mov, axis=1)
-
-      return df_final
-
-    return pd.DataFrame({
-        "Información": ["Estructura de datos no disponible actualmente."]
-    })
-
-  except Exception:
-    return pd.DataFrame({
-        "Información": ["El servicio oficial de Spotify no respondió a tiempo."]
-    })
 
 
 # Configuración de Streamlit
@@ -355,17 +325,17 @@ with tab_spotify:
       st.subheader("Top Artistas - Honduras 🇭🇳")
       ca1, ca2 = st.columns(2)
       with ca1:
-        st.markdown("**Diario**")
-        df_adh = get_spotify_official_artists(
-            "https://charts-spotify-com-service.spotify.com/public/v2/charts/csv/artist-hn-daily/latest"
+        st.markdown("**Resumen Diario**")
+        df_adh = get_artists_from_songs(
+            "https://kworb.net/spotify/country/hn_daily.html"
         )
         st.dataframe(
             df_adh, hide_index=True, use_container_width=True, height=500
         )
       with ca2:
-        st.markdown("**Semanal**")
-        df_awh = get_spotify_official_artists(
-            "https://charts-spotify-com-service.spotify.com/public/v2/charts/csv/artist-hn-weekly/latest"
+        st.markdown("**Resumen Semanal**")
+        df_awh = get_artists_from_songs(
+            "https://kworb.net/spotify/country/hn_weekly.html"
         )
         st.dataframe(
             df_awh, hide_index=True, use_container_width=True, height=500
@@ -399,17 +369,17 @@ with tab_spotify:
       st.subheader("Top Artistas - Global 🌍")
       ca3, ca4 = st.columns(2)
       with ca3:
-        st.markdown("**Diario Global**")
-        df_adg = get_spotify_official_artists(
-            "https://charts-spotify-com-service.spotify.com/public/v2/charts/csv/artist-global-daily/latest"
+        st.markdown("**Resumen Diario Global**")
+        df_adg = get_artists_from_songs(
+            "https://kworb.net/spotify/country/global_daily.html"
         )
         st.dataframe(
             df_adg, hide_index=True, use_container_width=True, height=500
         )
       with ca4:
-        st.markdown("**Semanal Global**")
-        df_awg = get_spotify_official_artists(
-            "https://charts-spotify-com-service.spotify.com/public/v2/charts/csv/artist-global-weekly/latest"
+        st.markdown("**Resumen Semanal Global**")
+        df_awg = get_artists_from_songs(
+            "https://kworb.net/spotify/country/global_weekly.html"
         )
         st.dataframe(
             df_awg, hide_index=True, use_container_width=True, height=500
