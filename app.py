@@ -122,7 +122,7 @@ def fetch_kworb_data(
     )
 
   try:
-    res = requests.get(url, headers=HEADERS, timeout=8)
+    res = requests.get(url, headers=HEADERS, timeout=12)
     if res.status_code != 200:
       return (
           pd.DataFrame({"Información": ["Cargando datos del servidor..."]}),
@@ -196,6 +196,52 @@ def fetch_kworb_data(
     )
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_bcd_data():
+  url = "https://b-cd.app/spotify/daily-top-songs"
+  try:
+    res = requests.get(url, headers=HEADERS, timeout=12)
+    if res.status_code != 200:
+      return pd.DataFrame(
+          {"Información": ["No se pudo conectar con b-cd.app"]}
+      )
+
+    res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame({
+          "Información": [
+              "La estructura de b-cd.app requiere carga manual o respaldo."
+          ]
+      })
+
+    rows = []
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) >= 2:
+        puesto = cols[0].text.strip()
+        full_text = cols[1].get_text(separator=" ").strip()
+        streams = cols[2].text.strip() if len(cols) > 2 else "N/D"
+
+        if es_artista_valido(full_text):
+          rows.append({
+              "Posición": f"#{puesto}",
+              "Artista & Canción": full_text,
+              "Streams": streams,
+          })
+
+    df = pd.DataFrame(rows)
+    return (
+        df
+        if not df.empty
+        else pd.DataFrame({"Información": ["No hay registros de BTS en b-cd"]})
+    )
+  except Exception as e:
+    return pd.DataFrame({"Información": [f"Error de conexión: {str(e)}"]})
+
+
 # --- INTERFAZ PRINCIPAL ---
 col_head1, col_head2 = st.columns([4, 1])
 with col_head1:
@@ -212,6 +258,7 @@ with col_head2:
     tab_apple,
     tab_yt,
     tab_deezer,
+    tab_bcd,
     tab_redes,
 ) = st.tabs([
     "🏠 Inicio",
@@ -219,6 +266,7 @@ with col_head2:
     "📊 Apple Music",
     "▶️ YouTube Music",
     "🔊 Deezer",
+    "📈 B-CD App",
     "🌐 Redes Sociales",
 ])
 
@@ -258,7 +306,8 @@ with tab_spotify:
       fecha_ref = fecha_hn_d or fecha_hn_w
       if fecha_ref:
         st.info(
-            f"📅 Fecha de actualización oficial obtenida de Kworb: **{fecha_ref}**"
+            f"📅 Fecha de actualización oficial obtenida de Kworb:"
+            f" **{fecha_ref}**"
         )
 
       c1, c2 = st.columns(2)
@@ -423,6 +472,29 @@ with tab_deezer:
     st.dataframe(
         df_dz_g, hide_index=True, use_container_width=True, height=450
     )
+
+# --- B-CD APP ---
+with tab_bcd:
+  st.header("📈 B-CD App (Spotify Daily Songs)")
+  st.info(
+      "📅 Monitoreo directo sincronizado con la plataforma comunitaria."
+  )
+
+  # Intentar cargar automático
+  df_bcd = fetch_bcd_data()
+  st.dataframe(df_bcd, hide_index=True, use_container_width=True, height=450)
+
+  # Opción de respaldo manual por si b-cd.app protege la ruta
+  with st.expander("⚙️ ¿No cargan los datos? Sube un CSV de respaldo manual"):
+    archivo_bcd = st.file_uploader(
+        "Sube tu archivo CSV para B-CD App", type=["csv"], key="bcd_upload"
+    )
+    if archivo_bcd is not None:
+      df_bcd_manual = pd.read_csv(archivo_bcd)
+      st.success("¡Datos cargados manualmente con éxito!")
+      st.dataframe(
+          df_bcd_manual, hide_index=True, use_container_width=True, height=450
+      )
 
 # --- REDES SOCIALES ---
 with tab_redes:
