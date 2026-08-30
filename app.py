@@ -1,10 +1,11 @@
 import io
+import re
 import pandas as pd
 import requests
 import streamlit as st
 
 
-# Función para obtener datos de Kworb
+# Función para obtener y filtrar datos de Kworb
 def get_kworb_data(url):
   try:
     headers = {
@@ -15,7 +16,62 @@ def get_kworb_data(url):
     }
     response = requests.get(url, headers=headers, timeout=10)
     dfs = pd.read_html(io.StringIO(response.text))
-    return dfs[0]
+    df = dfs[0]
+
+    # Lista de nombres/términos a buscar (insensible a mayúsculas/minúsculas)
+    # Incluye nombres artísticos, nombres reales y combinaciones habituales
+    bts_keywords = [
+        r"\bbts\b",
+        r"\brm\b",
+        r"\bkim namjoon\b",
+        r"\bjin\b",
+        r"\bkim seokjin\b",
+        r"\bsuga\b",
+        r"\bagust d\b",
+        r"\bmin yoongi\b",
+        r"\bj-hope\b",
+        r"\bjhope\b",
+        r"\bjung hoseok\b",
+        r"\bjimin\b",
+        r"\bpark jimin\b",
+        r"\b\bv\b\b",  # Coincide únicamente con la letra 'V' como palabra completa
+        r"\bkim taehyung\b",
+        r"\bjung kook\b",
+        r"\bjungkook\b",
+        r"\bjeon jungkook\b",
+    ]
+
+    # Crear una sola expresión regular uniendo todas las palabras
+    pattern = "|".join(bts_keywords)
+
+    # Identificar las columnas donde suele venir el artista o el título del tema
+    # Kworb suele usar columnas como 'Artist', 'Artist and Title' o 'Track'
+    text_columns = [
+        col
+        for col in df.columns
+        if df[col].dtype == "object" or col.lower() in ["artist", "title", "track"]
+    ]
+
+    if text_columns:
+      # Filtrar filas donde al menos una columna de texto coincida con los integrantes o BTS
+      mask = pd.Series(False, index=df.index)
+      for col in text_columns:
+        mask |= df[col].astype(str).str.contains(pattern, case=False, regex=True)
+
+      df_filtered = df[mask]
+
+      if df_filtered.empty:
+        return pd.DataFrame({
+            "Información": [
+                "No se encontraron canciones de BTS o sus solistas en este"
+                " chart actualmente."
+            ]
+        })
+
+      return df_filtered
+    else:
+      return df
+
   except Exception as e:
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
@@ -27,7 +83,9 @@ st.set_page_config(
 
 # Encabezado principal
 st.title("💜 BTS Honduras Charts")
-st.write("¡Revisa en tiempo real los charts de BTS!")
+st.write(
+    "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
+)
 
 # Banner principal
 st.image(
@@ -52,31 +110,23 @@ opcion = st.sidebar.radio(
 if opcion == "Inicio":
   st.header("Sobre Nosotros")
   st.write(
-      "Aquí encontrarás las novedades, proyectos de streaming y estadísticas de"
-      " BTS en Honduras."
+      "Aquí encontrarás las novedades, proyectos de streaming y estadísticas"
+      " exclusivas de BTS y sus solistas en Honduras."
   )
 
 elif opcion == "Spotify":
-  st.header("🎧 Spotify Charts")
+  st.header("🎧 Spotify Charts (Filtro BTS & Solistas)")
 
   st.subheader("Honduras 🇭🇳")
   c1, c2 = st.columns(2)
   with c1:
     st.markdown("**Top Diario Honduras**")
-    df_hd = get_kworb_data(
-        "https://kworb.net/spotify/country/hn_daily.html"
-    )
-    st.dataframe(
-        df_hd, hide_index=True, use_container_width=True, height=600
-    )
+    df_hd = get_kworb_data("https://kworb.net/spotify/country/hn_daily.html")
+    st.dataframe(df_hd, hide_index=True, use_container_width=True, height=500)
   with c2:
     st.markdown("**Top Semanal Honduras**")
-    df_hw = get_kworb_data(
-        "https://kworb.net/spotify/country/hn_weekly.html"
-    )
-    st.dataframe(
-        df_hw, hide_index=True, use_container_width=True, height=600
-    )
+    df_hw = get_kworb_data("https://kworb.net/spotify/country/hn_weekly.html")
+    st.dataframe(df_hw, hide_index=True, use_container_width=True, height=500)
 
   st.divider()
 
@@ -87,17 +137,13 @@ elif opcion == "Spotify":
     df_gd = get_kworb_data(
         "https://kworb.net/spotify/country/global_daily.html"
     )
-    st.dataframe(
-        df_gd, hide_index=True, use_container_width=True, height=600
-    )
+    st.dataframe(df_gd, hide_index=True, use_container_width=True, height=500)
   with c4:
     st.markdown("**Top Semanal Global**")
     df_gw = get_kworb_data(
         "https://kworb.net/spotify/country/global_weekly.html"
     )
-    st.dataframe(
-        df_gw, hide_index=True, use_container_width=True, height=600
-    )
+    st.dataframe(df_gw, hide_index=True, use_container_width=True, height=500)
 
 elif opcion == "Apple Music":
   st.header("📊 Apple Music")
