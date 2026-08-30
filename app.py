@@ -1,11 +1,20 @@
 import datetime
-import io
+import os
 import random
 import re
-import cloudscraper
 import pandas as pd
+import requests
 import streamlit as st
 from bs4 import BeautifulSoup
+
+# --- INSTALACIÓN AUTOMÁTICA DE PLAYWRIGHT EN STREAMLIT CLOUD ---
+try:
+  import playwright
+except ImportError:
+  os.system("pip install playwright")
+  os.system("playwright install chromium")
+
+from playwright.sync_playwright import sync_playwright
 
 st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
@@ -34,7 +43,6 @@ USER_AGENTS = [
 ]
 
 
-# --- FUNCIONES DE UTILIDAD ---
 def icon_mov(val):
   try:
     val = str(val).strip()
@@ -60,96 +68,107 @@ def es_artista_valido(text_completo):
     return False
 
 
-# --- DESCARGA OFICIAL DE SPOTIFY CHARTS USANDO CLOUDSCRAPER ---
+# --- SCRAPING CON NAVEGADOR REAL (PLAYWRIGHT) ---
 @st.cache_data(ttl=600, show_spinner=False)
-def fetch_spotify_official_csv(region="hn"):
-  scraper = cloudscraper.create_scraper()
+def fetch_spotify_charts_playwright(region="hn", chart_type="daily"):
   reg_key = "hn" if region == "hn" else "global"
+  url = f"https://spotifycharts.com/regional/{reg_key}/{chart_type}/latest"
 
-  url_daily = (
-      f"https://spotifycharts.com/regional/{reg_key}/daily/latest/download"
-  )
-  url_weekly = (
-      f"https://spotifycharts.com/regional/{reg_key}/weekly/latest/download"
-  )
-
-  df_daily = pd.DataFrame()
-  df_weekly = pd.DataFrame()
-
-  try:
-    res_d = scraper.get(url_daily, timeout=12)
-    if res_d.status_code == 200 and "Track Name" in res_d.text:
-      df_daily = pd.read_csv(io.StringIO(res_d.text), skiprows=1)
-  except Exception:
-    pass
-
-  try:
-    res_w = scraper.get(url_weekly, timeout=12)
-    if res_w.status_code == 200 and "Track Name" in res_w.text:
-      df_weekly = pd.read_csv(io.StringIO(res_w.text), skiprows=1)
-  except Exception:
-    pass
-
-  return df_daily, df_weekly
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def get_top_songs_spotify(region="hn"):
-  df_d, df_w = fetch_spotify_official_csv(region)
   rows = []
+  try:
+    with sync_playwright() as p:
+      browser = p.chromium.launch(headless=True)
+      page = browser.new_page(user_agent=random.choice(USER_AGENTS))
+      page.goto(url, timeout=45000)
+      page.wait_for_selector("table.chart-table", timeout=15000)
+      html_content = page.content()
+      browser.close()
 
-  weekly_streams_map = {}
-  if not df_w.empty and "Track Name" in df_w.columns:
-    for _, r in df_w.iterrows():
-      key = f"{str(r.get('Artist', '')).strip()} - {str(r.get('Track Name', '')).strip()}".upper()
-      weekly_streams_map[key] = f"{int(r.get('Streams', 0)):,}"
+    soup = BeautifulSoup(html_content, "html.parser")
+    table = soup.find("table", class_="chart-table")
+    if not table:
+      return pd.DataFrame()
 
-  if not df_d.empty and "Track Name" in df_d.columns:
-    for idx, row in df_d.iterrows():
-      puesto = str(row.get("Position", idx + 1))
-      cancion = str(row.get("Track Name", ""))
-      artista = str(row.get("Artist", ""))
-      streams_d_val = row.get("Streams", 0)
-      streams_d = (
-          f"{int(streams_d_val):,}" if pd.notnull(streams_d_val) else "0"
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 4:
+        continue
+      puesto = cols[0].text.strip()
+      # La estructura de Spotify Charts web: [0: Pos, 1: Cover, 2: Track/Artist, 3: Streams]
+      track_td = cols[2]
+      track_name_elem = track_td.find("strong")
+      artist_elem = track_td.find("span")
+
+      track_name = (
+          track_name_elem.text.strip() if track_name_elem else "Desconocido"
       )
-      full_text = f"{artista} - {cancion}"
+      artist_name = (
+          artist_elem.text.replace("by", "").strip()
+          if artist_elem
+          else "Desconocido"
+      )
+      streams_val = cols[3].text.strip()
 
+      full_text = f"{artist_name} - {track_name}"
       if es_artista_valido(full_text):
-        key_w = full_text.upper()
-        streams_w = weekly_streams_map.get(key_w, "Sin registro semanal")
         rows.append({
             "Posición": f"#{puesto}",
             "Cambio": "➡️ =",
             "Artista & Canción": full_text,
-            "Streams Diarios": streams_d,
-            "Streams Semanales": streams_w,
+            "Streams": streams_val,
         })
+  except Exception:
+    pass
 
-  if not rows:
+  return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_top_songs_spotify(region="hn"):
+  df_d = fetch_spotify_charts_playwright(region, "daily")
+  df_w = fetch_spotify_charts_playwright(region, "weekly")
+
+  if df_d.empty:
     return pd.DataFrame({
         "Información": [
-            "No hay registros actuales de BTS o solistas en este chart."
+            "No hay registros actuales de BTS o solistas en este chart o el"
+            " servidor está cargando."
         ]
     })
+
+  weekly_map = {}
+  if not df_w.empty:
+    for _, r in df_w.iterrows():
+      weekly_map[r["Artista & Canción"].upper()] = r["Streams"]
+
+  rows = []
+  for _, row in df_d.iterrows():
+    full_text = row["Artista & Canción"]
+    streams_w = weekly_map.get(full_text.upper(), "Sin registro semanal")
+    rows.append({
+        "Posición": row["Posición"],
+        "Cambio": row["Cambio"],
+        "Artista & Canción": full_text,
+        "Streams Diarios": row["Streams"],
+        "Streams Semanales": streams_w,
+    })
+
   return pd.DataFrame(rows)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_top_artists_spotify(region="hn"):
-  df_d, _ = fetch_spotify_official_csv(region)
+  df_d = fetch_spotify_charts_playwright(region, "daily")
   artist_data = {}
 
-  if not df_d.empty and "Artist" in df_d.columns:
+  if not df_d.empty:
     for _, row in df_d.iterrows():
-      artista_str = str(row.get("Artist", ""))
+      artista_full = row["Artista & Canción"]
+      puesto_num = int(row["Posición"].replace("#", ""))
       for miembro in SOLO_BTS:
-        if miembro in artista_str.upper():
+        if miembro in artista_full.upper():
           if miembro not in artist_data:
-            artist_data[miembro] = {
-                "pos": int(row.get("Position", 999)),
-                "count": 0,
-            }
+            artist_data[miembro] = {"pos": puesto_num, "count": 0}
           artist_data[miembro]["count"] += 1
 
   rows = []
@@ -319,7 +338,7 @@ with tab_apple:
 
 with tab_yt:
   st.header("▶️ YouTube Music")
-  st.write("En construcción.")
+  st.write("En `construcción`.")
 
 with tab_deezer:
   st.header("🔊 Deezer Charts")
