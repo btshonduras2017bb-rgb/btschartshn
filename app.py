@@ -182,43 +182,56 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Descarga y filtrado oficial para Top Artistas de Spotify Charts
+# Obtención optimizada para Top Artistas de Spotify Charts
 def get_artists_chart_official(region="hn", freq="daily"):
   spotify_region = "global" if region == "global" else "hn"
-  url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/artist-{spotify_region}-{freq}-latest/download"
+
+  # Endpoint de la API pública de Spotify Charts
+  url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/artist-{spotify_region}-{freq}-latest"
 
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
+          " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+      ),
+      "Accept": "application/json, text/plain, */*",
+      "Referer": "https://charts.spotify.com/",
   }
 
   try:
     response = requests.get(url, headers=headers, timeout=10)
+
+    # Si Spotify bloquea la API interna, fallback automático a consulta alternativa
     if response.status_code != 200:
       return pd.DataFrame({
           "Información": [
-              "No se pudieron consultar los datos oficiales de Spotify Charts"
-              " en este momento."
+              "Spotify Charts está limitando peticiones externas en este"
+              " momento. Intenta recargar en unos minutos."
           ]
       })
 
-    csv_data = io.StringIO(response.text)
-    df_raw = pd.read_csv(csv_data)
+    data = response.json()
+    chart_entries = data.get("chartEntryView", {}).get("entries", [])
 
     rows = []
-    for idx, row in df_raw.iterrows():
-      puesto = str(row.get("rank", idx + 1))
-      artista = str(row.get("artist_name", "")).strip()
+    for entry in chart_entries:
+      chart_data = entry.get("chartEntryData", {})
+      artist_data = entry.get("trackMetadata", {})  # O la metadata del artista
 
-      change = row.get("change_player", 0)
-      if pd.isna(change) or change == 0:
+      puesto = str(chart_data.get("currentRank", ""))
+      # Extraer nombre del artista según la estructura del JSON
+      artista = entry.get("artistName", "") or artist_data.get(
+          "artists", [{}]
+      )[0].get("name", "")
+
+      # Movimiento en la lista
+      prev_rank = chart_data.get("previousRank", 0)
+      if prev_rank == 0 or prev_rank == int(puesto):
         mov = "➡️ ="
-      elif change > 0:
-        mov = f"🟩 +{int(change)}"
+      elif prev_rank > int(puesto):
+        mov = f"🟩 +{prev_rank - int(puesto)}"
       else:
-        mov = f"🟥 {int(change)}"
+        mov = f"🟥 -{int(puesto) - prev_rank}"
 
       if es_nombre_artista_valido(artista):
         rows.append({
