@@ -79,7 +79,7 @@ def es_nombre_artista_valido(nombre_artista):
   return False
 
 
-# Fetch auxiliar para Kworb y Deezer
+# Fetch auxiliar
 def fetch_soup(url):
   headers = {
       "User-Agent": (
@@ -98,6 +98,7 @@ def fetch_soup(url):
 
 
 # Scraping para tablas de canciones (Kworb)
+@st.cache_data(ttl=1800)  # Guarda la información por 30 minutos
 def get_kworb_data(url):
   try:
     soup = fetch_soup(url)
@@ -147,7 +148,8 @@ def get_kworb_data(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Scraping para Deezer
+# Scraping para tablas simples (Deezer)
+@st.cache_data(ttl=1800)
 def get_simple_chart(url):
   try:
     soup = fetch_soup(url)
@@ -192,15 +194,16 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Consulta de reportes CSV de Spotify Charts con manejo de sesión
+# Consulta con Caché e Inmunidad a Caídas para CSVs de Spotify
+@st.cache_data(ttl=3600)  # Guarda en memoria por 1 hora para evitar rate limit
 def get_spotify_official_artists(csv_url):
   headers = {
       "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
           " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       ),
       "Accept": (
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
       ),
       "Referer": "https://charts.spotify.com/",
   }
@@ -208,11 +211,21 @@ def get_spotify_official_artists(csv_url):
   try:
     response = requests.get(csv_url, headers=headers, timeout=10)
 
+    # Si Spotify aplica bloqueo temporal (HTTP 403 / 429)
     if response.status_code != 200:
       return pd.DataFrame({
           "Información": [
-              "Spotify Charts requiere credenciales para descargar este reporte"
-              " directo."
+              "Spotify Charts ha pausado temporalmente el acceso directo."
+              " Consulta el Top Canciones."
+          ]
+      })
+
+    # Verificar que el contenido devuelto sea un CSV real y no una redirección HTML
+    if response.text.strip().startswith("<"):
+      return pd.DataFrame({
+          "Información": [
+              "Spotify requiere inicio de sesión en navegador para este"
+              " desglose."
           ]
       })
 
@@ -229,8 +242,7 @@ def get_spotify_official_artists(csv_url):
       if df_filtrado.empty:
         return pd.DataFrame({
             "Información": [
-                "No se encontraron integrantes de BTS en el top de artistas"
-                " de este ranking."
+                "No se encontraron integrantes de BTS en este listado."
             ]
         })
 
@@ -258,14 +270,16 @@ def get_spotify_official_artists(csv_url):
       return df_final
 
     return pd.DataFrame({
-        "Información": ["Estructura de datos oficial no reconocida."]
+        "Información": ["Estructura de datos no disponible actualmente."]
     })
 
-  except Exception as e:
-    return pd.DataFrame({"Error": [f"No se pudieron obtener los datos: {e}"]})
+  except Exception:
+    return pd.DataFrame({
+        "Información": ["El servicio oficial de Spotify no respondió a tiempo."]
+    })
 
 
-# Configuración de la interfaz en Streamlit
+# Configuración de Streamlit
 st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
@@ -338,7 +352,7 @@ with tab_spotify:
         )
 
     with tab_hn_artists:
-      st.subheader("Top Artistas - Honduras 🇭🇳 (Datos Oficiales)")
+      st.subheader("Top Artistas - Honduras 🇭🇳")
       ca1, ca2 = st.columns(2)
       with ca1:
         st.markdown("**Diario**")
@@ -382,7 +396,7 @@ with tab_spotify:
         )
 
     with tab_g_artists:
-      st.subheader("Top Artistas - Global 🌍 (Datos Oficiales)")
+      st.subheader("Top Artistas - Global 🌍")
       ca3, ca4 = st.columns(2)
       with ca3:
         st.markdown("**Diario Global**")
