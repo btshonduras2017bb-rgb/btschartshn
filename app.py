@@ -86,22 +86,18 @@ def es_artista_valido(text_completo):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_spotify_charts_api(region="hn", period="daily", chart_type="regional"):
-  """Consulta directa a la infraestructura pública de Spotify Charts."""
-  # regional: canciones | artist: artistas
+  """Consulta directa a Spotify con fallback multi-origen estable."""
   url = f"https://charts-spotify-com-service.spotify.com/public/v10/charts/{chart_type}-{region}-{period}/latest"
 
   headers = {
       "User-Agent": random.choice(USER_AGENTS),
       "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
       "Origin": "https://charts.spotify.com",
       "Referer": "https://charts.spotify.com/",
   }
 
   try:
-    session = requests.Session()
-    res = session.get(url, headers=headers, timeout=10)
-
+    res = requests.get(url, headers=headers, timeout=5)
     if res.status_code == 200:
       data = res.json()
       chart_date = data.get("chartEntry", {}).get("chartDate", "")
@@ -157,29 +153,102 @@ def fetch_spotify_charts_api(region="hn", period="daily", chart_type="regional")
             })
 
       df = pd.DataFrame(rows)
-      if df.empty:
-        return (
-            pd.DataFrame({
-                "Información": [
-                    "Sin entradas de BTS en la lista oficial de hoy."
-                ]
-            }),
-            chart_date,
-        )
-
-      return df, chart_date
+      if not df.empty:
+        return df, chart_date
   except Exception:
     pass
 
-  return (
-      pd.DataFrame({
-          "Aviso": [
-              "Spotify Charts se está actualizando. Vuelve a intentar en unos"
-              " minutos."
-          ]
-      }),
-      "",
-  )
+  # Respaldo asegurado en caso de bloqueo IP en Streamlit Cloud
+  return fetch_spotify_html_fallback(region, period, chart_type)
+
+
+def fetch_spotify_html_fallback(region, period, chart_type):
+  """Limpia el bloqueo cargando datos estructurados de respaldo en tiempo real."""
+  if region == "hn":
+    url = (
+        "https://kworb.net/spotify/country/hn_daily.html"
+        if period == "daily"
+        else "https://kworb.net/spotify/country/hn_weekly.html"
+    )
+  else:
+    url = (
+        "https://kworb.net/spotify/country/global_daily.html"
+        if period == "daily"
+        else "https://kworb.net/spotify/country/global_weekly.html"
+    )
+
+  try:
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    res = requests.get(url, headers=headers, timeout=8)
+    if res.status_code != 200:
+      return (
+          pd.DataFrame({
+              "Información": ["Actualizando datos del reporte diario..."]
+          }),
+          "",
+      )
+
+    soup = BeautifulSoup(res.text, "html.parser")
+    fecha = ""
+    subhead = soup.find("div", class_="subhead")
+    if subhead:
+      match = re.search(r"\d{4}/\d{2}/\d{2}", subhead.text)
+      if match:
+        fecha = match.group(0)
+
+    table = soup.find("table")
+    if not table:
+      return pd.DataFrame({"Información": ["Sin entradas de BTS."]}), fecha
+
+    rows = []
+    artistas_vistos = set()
+
+    for tr in table.find_all("tr")[1:]:
+      cols = tr.find_all("td")
+      if len(cols) < 3:
+        continue
+
+      puesto = cols[0].text.strip()
+      mov = icon_mov(cols[1].text.strip())
+      full_text = cols[2].get_text(separator=" ").strip()
+
+      if es_artista_valido(full_text):
+        if chart_type == "regional":
+          row_data = {
+              "Posición": f"#{puesto}",
+              "Cambio": mov,
+              "Artista & Canción": full_text,
+          }
+          if len(cols) >= 7:
+            row_data["Streams"] = cols[6].text.strip()
+          rows.append(row_data)
+        else:
+          # Para la pestaña de Artistas
+          partes = full_text.split(" - ")
+          art_name = partes[0].strip() if len(partes) > 0 else full_text
+          if art_name not in artistas_vistos:
+            artistas_vistos.add(art_name)
+            rows.append({
+                "Posición": f"#{puesto}",
+                "Artista": art_name,
+                "Cambio": mov,
+            })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+      return (
+          pd.DataFrame({
+              "Información": ["Sin posiciones registradas de BTS hoy."]
+          }),
+          fecha,
+      )
+
+    return df, fecha
+  except Exception:
+    return (
+        pd.DataFrame({"Información": ["Actualizando reporte oficial..."]}),
+        "",
+    )
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -260,7 +329,7 @@ with tab_inicio:
   )
 
 with tab_spotify:
-  st.header("🎧 Spotify Official Charts (Directo de Spotify)")
+  st.header("🎧 Spotify Official Charts")
   subtab_hn, subtab_global = st.tabs(["🇭🇳 Honduras", "🌍 Global"])
 
   with subtab_hn:
