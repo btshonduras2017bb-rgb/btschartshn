@@ -1,5 +1,6 @@
 import datetime
 import io
+import random
 import re
 import pandas as pd
 import requests
@@ -101,28 +102,14 @@ def fetch_spotify_charts_csv(
   headers = {"User-Agent": random.choice(USER_AGENTS)}
 
   reg = region.lower()  # 'hn' o 'regional' (global)
-  per = (
-      "latest"  # El endpoint oficial usa 'latest' para el archivo más reciente
-  )
-  kind = "regional" if reg == "global" else "country"
-
-  if kind == "country":
-    url = f"https://spotifycharts.com/regional/{reg}/{period}/latest"
-  else:
-    url = f"https://spotifycharts.com/regional/global/{period}/latest"
-
-  # Los CSVs directos oficiales siguen esta estructura en Spotify Charts:
-  csv_url = f"https://charts.spotify.com/charts/view/{kind}-{reg}-{period}/latest"
 
   try:
-    # Intentamos descargar el CSV directamente desde el endpoint oficial de Spotify Charts
-    # Formato oficial CSV de Spotify: Posicion, Track Name, Artist, Streams, URL, etc.
-    direct_csv_url = f"https://spotifycharts.com/regional/{reg}/{period}/latest/download"
+    direct_csv_url = (
+        f"https://spotifycharts.com/regional/{reg}/{period}/latest/download"
+    )
     res = requests.get(direct_csv_url, headers=headers, timeout=10)
 
     if res.status_code != 200:
-      # Fallback a la ruta alternativa de descarga directa
-      alt_url = f"https://covid19.who.int"  # placeholder o fallback
       return (
           pd.DataFrame(
               {
@@ -177,13 +164,10 @@ def fetch_spotify_charts_csv(
 
     return df, fecha_hoy
   except Exception:
-    # Fallback robusto usando respaldo de respaldo si la ruta directa cambia de estructura
     return (
-        pd.DataFrame({
-            "Información": [
-                "Actualizando datos oficiales desde el servidor de Spotify..."
-            ]
-        }),
+        pd.DataFrame(
+            {"Información": ["Actualizando datos oficiales de Spotify..."]}
+        ),
         "",
     )
 
