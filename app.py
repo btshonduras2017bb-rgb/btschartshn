@@ -1,3 +1,5 @@
+import base64
+from datetime import datetime
 import io
 import re
 import pandas as pd
@@ -5,7 +7,46 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-# Lista principal de nombres de BTS y sus integrantes (Incluye BTS como GRUPO y Solistas)
+# --- CONFIGURACIÓN DE LA PÁGINA ---
+st.set_page_config(
+    page_title="BTS Charts Honduras HN",
+    page_icon="BTSLOGO.png",
+    layout="wide",
+)
+
+
+# --- FUNCIÓN PARA CARGAR IMAGEN DE FONDO ---
+def get_base64(bin_file):
+  try:
+    with open(bin_file, "rb") as f:
+      data = f.read()
+    return base64.b64encode(data).decode()
+  except:
+    return None
+
+
+image_path = "BTSLOGO.png"
+bin_str = get_base64(image_path)
+
+# --- ESTILOS CSS ---
+if bin_str:
+  page_bg_img = f"""
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background-image: url("data:image/png;base64,{bin_str}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+    [data-testid="stHeader"] {{
+        background-color: rgba(0,0,0,0);
+    }}
+    </style>
+    """
+  st.markdown(page_bg_img, unsafe_allow_html=True)
+
+# Lista principal de nombres de BTS y sus integrantes
 solo_bts = [
     "BTS",
     "JUNG KOOK",
@@ -84,7 +125,7 @@ def get_kworb_data(url):
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
       )
   }
   try:
@@ -138,7 +179,7 @@ def get_simple_chart(url):
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
       )
   }
   try:
@@ -182,57 +223,60 @@ def get_simple_chart(url):
     return pd.DataFrame({"Error": [f"No se pudieron cargar los datos: {e}"]})
 
 
-# Función optimizada para extraer Artistas de Spotify Charts (Grupo y Solistas)
+# Extracción oficial de Top Artistas desde la API de Spotify Charts
 def get_artists_chart_official(region="hn", freq="daily"):
   spotify_region = "global" if region == "global" else "hn"
   chart_type = f"artist-{spotify_region}"
 
-  # Endpoint de consulta oficial
   url = f"https://charts-spotify-com-service.spotify.com/public/v0/charts/{chart_type}-{freq}-latest"
 
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+          " (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
       ),
-      "Accept": "application/json",
-      "Referer": (
-          f"https://charts.spotify.com/charts/view/{chart_type}-{freq}/latest"
-      ),
-      "App-Platform": "Browser",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      "Referer": f"https://charts.spotify.com/charts/view/{chart_type}-{freq}/latest",
+      "Origin": "https://charts.spotify.com",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-site",
   }
 
   try:
-    response = requests.get(url, headers=headers, timeout=10)
+    response = requests.get(url, headers=headers, timeout=12)
 
     if response.status_code == 200:
       data = response.json()
 
-      # Captura de entradas soportando múltiples estructuras JSON posibles
-      entries = (
-          data.get("chartEntryView", {}).get("entries", [])
-          or data.get("chartEntryView", {})
-          .get("entryData", {})
-          .get("chartEntries", [])
-          or data.get("entries", [])
-      )
+      entries = []
+      if "chartEntryView" in data:
+        cev = data["chartEntryView"]
+        entries = cev.get("entries", []) or cev.get("entryData", {}).get(
+            "chartEntries", []
+        )
+      elif "entries" in data:
+        entries = data["entries"]
 
       rows = []
       for idx, entry in enumerate(entries, start=1):
-        # Puesto actual
         chart_data = entry.get("chartEntryData", {})
         puesto = str(chart_data.get("currentRank", entry.get("rank", idx)))
 
-        # Extracción profunda del nombre del artista (Múltiples formatos)
-        artista = (
-            entry.get("artistName", "")
-            or entry.get("artistMetadata", {}).get("artistName", "")
-            or entry.get("trackMetadata", {})
-            .get("artists", [{}])[0]
-            .get("name", "")
-        )
+        artista = ""
+        if "artistName" in entry:
+          artista = entry["artistName"]
+        elif "artistMetadata" in entry:
+          artista = entry["artistMetadata"].get("artistName", "")
+        elif "trackMetadata" in entry:
+          artists_list = entry["trackMetadata"].get("artists", [])
+          if artists_list:
+            artista = artists_list[0].get("name", "")
 
-        # Movimiento
+        if not artista and "artist" in entry:
+          artista = entry["artist"].get("name", "")
+
         prev_rank = chart_data.get(
             "previousRank", entry.get("previousRank", 0)
         )
@@ -245,8 +289,7 @@ def get_artists_chart_official(region="hn", freq="daily"):
         else:
           mov = f"🟥 -{puesto_num - prev_rank}"
 
-        # Filtrado: Acepta BTS como grupo y a cualquiera de sus miembros solistas
-        if es_nombre_artista_valido(artista):
+        if artista and es_nombre_artista_valido(artista):
           rows.append({"Pos": puesto, "Mov": mov, "Artista": artista})
 
       df = pd.DataFrame(rows)
@@ -266,11 +309,7 @@ def get_artists_chart_official(region="hn", freq="daily"):
     )
 
 
-# Configuración de la página en Streamlit
-st.set_page_config(
-    page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
-)
-
+# --- INTERFAZ STREAMLIT ---
 st.title("💜 BTS Honduras Charts")
 st.write(
     "¡Revisa en tiempo real las posiciones de BTS y sus integrantes en solo!"
