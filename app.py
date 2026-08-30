@@ -8,26 +8,34 @@ st.set_page_config(
 )
 
 # Encabezado principal
-st.title("💜 BTS Honduras Charts & Fanbase")
-st.write("¡Bienvenid@ a la plataforma oficial de fans de BTS en Honduras!")
+st.title("💜 BTS Honduras Charts")
+st.write("¡Revisa en tiempo real los charts")
 
 # Banner principal
-st.image("https://images.unsplash.com/photo-1514525253161-7a46d19cd819", use_container_width=True)
+st.image("https://pbs.twimg.com/media/HQyPXMUboAAvvBx?format=jpg&name=4096x4096", use_container_width=True)
 
 # Menú lateral
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["Inicio", "Charts", "Proyectos", "Redes Sociales"])
+opcion = st.sidebar.radio("Ir a:", ["Inicio", "Spotify", "Apple Music", "Youtube Music", "Deezer", "Redes Sociales"])
 
 if opcion == "Inicio":
     st.header("Sobre Nosotros")
     st.write("Aquí encontrarás las novedades, proyectos de streaming y estadísticas de BTS en Honduras.")
 
-elif opcion == "Charts":
-    st.header("📊 Streaming Charts")
+elif opcion == "Spotify":
+    st.header("📊 Spotify")
     st.info("Próximamente actualizaremos los datos de streaming en Spotify y YouTube.")
 
-elif opcion == "Proyectos":
-    st.header("🎉 Próximos Proyectos")
+elif opcion == "Apple Music":
+    st.header("📊 Apple Music")
+    st.write("Proyectos de cumpleaños, cup sleeves y metas de streaming.")
+
+elif opcion == "Youtube Music":
+    st.header("📊 Youtube Music")
+    st.write("Proyectos de cumpleaños, cup sleeves y metas de streaming.")
+
+elif opcion == "Deezer":
+    st.header("📊 Deezer")
     st.write("Proyectos de cumpleaños, cup sleeves y metas de streaming.")
 
 elif opcion == "Redes Sociales":
