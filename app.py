@@ -13,15 +13,18 @@ st.set_page_config(
     page_title="BTS Honduras Charts", page_icon="💜", layout="wide"
 )
 
-# --- CONFIGURACIÓN Y CREDENCIALES SPOTIFY ---
-# Puedes configurar tus credenciales en los Secrets de Streamlit o colocarlas aquí temporalmente
-CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID", "TU_CLIENT_ID")
-CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET", "TU_CLIENT_SECRET")
+# --- CREDENCIALES DE SPOTIFY (Leyendo de Streamlit Secrets u os.environ) ---
+CLIENT_ID = st.secrets.get(
+    "SPOTIPY_CLIENT_ID", os.getenv("SPOTIPY_CLIENT_ID", "")
+)
+CLIENT_SECRET = st.secrets.get(
+    "SPOTIPY_CLIENT_SECRET", os.getenv("SPOTIPY_CLIENT_SECRET", "")
+)
 
 # Configurar cliente de Spotify
 spotify_client = None
 try:
-  if CLIENT_ID != "TU_CLIENT_ID" and CLIENT_SECRET != "TU_CLIENT_SECRET":
+  if CLIENT_ID and CLIENT_SECRET:
     auth_manager = SpotifyClientCredentials(
         client_id=CLIENT_ID, client_secret=CLIENT_SECRET
     )
@@ -68,7 +71,7 @@ def icon_mov(val):
 
 def es_artista_valido(text_completo, artistas_lista=None):
   try:
-    # Si tenemos la lista de artistas directo de la API de Spotify, evaluamos de forma precisa
+    # Validación precisa usando la lista de artistas oficial de la API de Spotify
     if artistas_lista:
       for art in artistas_lista:
         art_upper = art.upper()
@@ -104,8 +107,8 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
         pd.DataFrame({
             "Información": [
                 (
-                    "Configura tus credenciales de Spotify API en el código o"
-                    " en Streamlit Secrets."
+                    "No se detectaron las credenciales de Spotify en los"
+                    " Secrets de Streamlit."
                 )
             ]
         }),
@@ -114,9 +117,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
 
   try:
     rows = []
-    # Usamos búsquedas dirigidas o playlists editoriales oficiales de Top 50 por país
-    # Playlist ID para Top 50 Honduras: 37i9dQZEVXbO3qycosjK8v
-    # Playlist ID para Top 50 Global: 37i9dQZEVXbMDoHDwVN2tF
+    # Playlists editoriales oficiales de Top 50 Top Charts
     playlist_id = (
         "37i9dQZEVXbO3qycosjK8v"
         if region.upper() == "HN"
@@ -135,7 +136,6 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
       artistas_str = ", ".join(artistas)
       full_text = f"{artistas_str} - {nombre_cancion}"
 
-      # Aplicamos nuestro filtro estricto basado en los nombres de artistas reales de la API
       if es_artista_valido(full_text, artistas):
         if type_entry == "tracks":
           rows.append({
@@ -169,7 +169,7 @@ def fetch_spotify_api_charts(region="HN", type_entry="tracks"):
         pd.DataFrame({
             "Información": [
                 (
-                    "Error al conectar con la API de Spotify. Verifica tus"
+                    "Error al consultar la API de Spotify. Revisa tus"
                     " credenciales."
                 )
             ]
